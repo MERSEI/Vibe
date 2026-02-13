@@ -1,0 +1,10 @@
+.git
+.gitignore
+README.md
+docs
+tests
+*.test.js
+*.test.jsx
+.env.local
+.env.*.local
+node_modules
