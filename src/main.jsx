@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { RoomProvider } from './api/liveblocks/config';
+import { RoomProvider } from './api/liveblocks/config.jsx';
 import VibeIDE from './App';
 import './index.css';
 

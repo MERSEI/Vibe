@@ -36,21 +36,13 @@ const FEATURES = [
 ];
 
 export function SplashScreen({ onStart }) {
-  const [visible, setVisible] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [typed, setTyped] = useState('');
 
   const TAGLINE = 'AI-Powered Development Environment';
 
-  // Fade in on mount
+  // Typewriter effect starts immediately
   useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 80);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Typewriter effect for tagline
-  useEffect(() => {
-    if (!visible) return;
     let i = 0;
     const interval = setInterval(() => {
       if (i <= TAGLINE.length) {
@@ -61,7 +53,7 @@ export function SplashScreen({ onStart }) {
       }
     }, 40);
     return () => clearInterval(interval);
-  }, [visible]);
+  }, []);
 
   const handleStart = () => {
     setLeaving(true);
@@ -74,7 +66,7 @@ export function SplashScreen({ onStart }) {
       style={{
         background:
           'radial-gradient(ellipse at 30% 50%, #0d0a24 0%, #080818 40%, #050510 100%)',
-        opacity: visible && !leaving ? 1 : 0,
+        opacity: leaving ? 0 : 1,
         transition: 'opacity 0.7s ease',
         pointerEvents: leaving ? 'none' : 'auto',
       }}
@@ -146,32 +138,28 @@ export function SplashScreen({ onStart }) {
       />
 
       {/* Main content */}
-      <div className="relative z-10 flex flex-col items-center gap-8 text-center px-8 max-w-2xl w-full">
+      <div className="relative z-10 flex flex-col items-center gap-8 text-center px-8 max-w-2xl w-full animate-fadeIn">
         {/* Claude badge */}
         <div
-          className="flex items-center gap-2.5 px-5 py-2 rounded-full text-xs font-mono"
+          className="flex items-center gap-2.5 px-5 py-2 rounded-full text-xs font-mono animate-pulse-soft"
           style={{
             border: '1px solid rgba(251, 146, 60, 0.3)',
             background: 'rgba(251, 146, 60, 0.07)',
             color: '#fb923c',
-            animation: 'splash-fadein 0.8s ease 0.3s both',
           }}
         >
           <span
-            className="w-2 h-2 rounded-full"
+            className="w-2 h-2 rounded-full animate-pulse"
             style={{
               background: '#fb923c',
-              animation: 'splash-pulse 2s ease-in-out infinite',
             }}
           />
           Built entirely by Claude · Anthropic
         </div>
 
         {/* Logo */}
-        <div
-          className="flex flex-col items-center gap-3"
-          style={{ animation: 'splash-fadein 0.8s ease 0.5s both' }}
-        >
+        <div className="flex flex-col items-center gap-3">
+
           <h1
             className="font-black tracking-tight leading-none"
             style={{
@@ -202,10 +190,7 @@ export function SplashScreen({ onStart }) {
         </div>
 
         {/* Feature chips */}
-        <div
-          className="flex flex-wrap justify-center gap-2"
-          style={{ animation: 'splash-fadein 0.8s ease 0.9s both' }}
-        >
+        <div className="flex flex-wrap justify-center gap-2">
           {FEATURES.map((f) => (
             <span
               key={f.label}
@@ -217,7 +202,7 @@ export function SplashScreen({ onStart }) {
         </div>
 
         {/* CTA Button */}
-        <div style={{ animation: 'splash-fadein 0.8s ease 1.2s both' }}>
+        <div>
           <button
             onClick={handleStart}
             className="group relative px-12 py-4 rounded-xl font-bold text-white text-base overflow-hidden
@@ -249,10 +234,7 @@ export function SplashScreen({ onStart }) {
         </div>
 
         {/* Footer */}
-        <p
-          className="text-slate-700 text-xs font-mono"
-          style={{ animation: 'splash-fadein 0.8s ease 1.5s both' }}
-        >
+        <p className="text-slate-700 text-xs font-mono">
           Vibe IDE · Demo v1.0 · 2025 · claude-sonnet-4-5
         </p>
       </div>
