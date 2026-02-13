@@ -14,12 +14,15 @@
  * - Error Boundaries (Phase 4.4)
  */
 
-import React, { Suspense, lazy, useEffect } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { Layout } from './components/layout/Layout';
 import { EditorPanel } from './components/editor/EditorPanel';
 import { Toast } from './components/common/index';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { Spinner } from './components/common/index';
+import { SplashScreen } from './components/demo/SplashScreen';
+import { InteractiveShowcase } from './components/demo/InteractiveShowcase';
+import { DemoTourButton } from './components/demo/DemoTourButton';
 import {
   useTheme,
   useI18n,
@@ -77,6 +80,10 @@ export default function VibeIDE() {
   const [activeTab, setActiveTab] = React.useState('editor');
   const [toast, setToast] = React.useState(null);
   const [showEventBus, setShowEventBus] = React.useState(false);
+
+  // Demo state
+  const [showSplash, setShowSplash] = useState(true);
+  const [showShowcase, setShowShowcase] = useState(false);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -137,6 +144,16 @@ export default function VibeIDE() {
 
   return (
     <ErrorBoundary theme={theme}>
+      {/* Cinematic splash screen — shown on first load */}
+      {showSplash && (
+        <SplashScreen
+          onStart={() => {
+            setShowSplash(false);
+            setShowShowcase(true);
+          }}
+        />
+      )}
+
       <Layout
         theme={theme}
         lang={lang}
@@ -160,6 +177,20 @@ export default function VibeIDE() {
         )}
         <ErrorBoundary theme={theme}>{renderActivePanel()}</ErrorBoundary>
       </Layout>
+
+      {/* Floating demo tour button — visible after splash is dismissed */}
+      {!showSplash && !showShowcase && (
+        <DemoTourButton onClick={() => setShowShowcase(true)} />
+      )}
+
+      {/* Interactive showcase panel */}
+      {showShowcase && (
+        <InteractiveShowcase
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onClose={() => setShowShowcase(false)}
+        />
+      )}
     </ErrorBoundary>
   );
 }
