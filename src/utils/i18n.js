@@ -10,7 +10,21 @@ export const translations = {
     // App
     title: 'Vibe IDE',
     subtitle: 'AI-Powered Development Environment',
-    
+
+    // Splash Screen
+    splashTagline: 'AI-Powered Development Environment',
+    splashBuiltBy: 'Built entirely by Claude · Anthropic',
+    splashStartDemo: 'Start Interactive Demo',
+    splashFeatures: {
+      editor: 'Monaco Editor',
+      agents: 'AI Agents DAG',
+      rag: 'RAG Pipeline',
+      tracing: 'OTEL Tracing',
+      collaboration: 'Live Collaboration',
+      search: 'pgvector Search',
+    },
+    splashFooter: 'Vibe IDE · Demo v1.0 · 2025 · claude-sonnet-4-5',
+
     // Navigation
     files: 'Files',
     editor: 'Editor',
@@ -112,7 +126,21 @@ export const translations = {
     // App
     title: 'Vibe IDE',
     subtitle: 'AI-среда разработки',
-    
+
+    // Splash Screen
+    splashTagline: 'AI-среда разработки',
+    splashBuiltBy: 'Полностью создано Claude · Anthropic',
+    splashStartDemo: 'Начать интерактивную демо',
+    splashFeatures: {
+      editor: 'Редактор Monaco',
+      agents: 'DAG AI агентов',
+      rag: 'RAG конвейер',
+      tracing: 'OTEL трейсинг',
+      collaboration: 'Совместное редактирование',
+      search: 'pgvector поиск',
+    },
+    splashFooter: 'Vibe IDE · Демо v1.0 · 2025 · claude-sonnet-4-5',
+
     // Navigation
     files: 'Файлы',
     editor: 'Редактор',

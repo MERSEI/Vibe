@@ -26,7 +26,7 @@ const CODE_PARTICLES = [
   'ANTHROPIC_API_KEY',
 ];
 
-const FEATURES = [
+const FEATURES_EN = [
   { label: 'Monaco Editor', color: 'bg-blue-500/10 border-blue-500/30 text-blue-400' },
   { label: 'AI Agents DAG', color: 'bg-purple-500/10 border-purple-500/30 text-purple-400' },
   { label: 'RAG Pipeline', color: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' },
@@ -35,11 +35,29 @@ const FEATURES = [
   { label: 'pgvector Search', color: 'bg-pink-500/10 border-pink-500/30 text-pink-400' },
 ];
 
-export function SplashScreen({ onStart }) {
+export function SplashScreen({ lang = 'en', t = {}, onStart }) {
   const [leaving, setLeaving] = useState(false);
   const [typed, setTyped] = useState('');
 
-  const TAGLINE = 'AI-Powered Development Environment';
+  // Localized content
+  const TAGLINE = t.splashTagline || 'AI-Powered Development Environment';
+
+  // Map translated feature names to colors
+  const getFeatures = () => {
+    const featureKeys = ['editor', 'agents', 'rag', 'tracing', 'collaboration', 'search'];
+    const colors = [
+      'bg-blue-500/10 border-blue-500/30 text-blue-400',
+      'bg-purple-500/10 border-purple-500/30 text-purple-400',
+      'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
+      'bg-orange-500/10 border-orange-500/30 text-orange-400',
+      'bg-cyan-500/10 border-cyan-500/30 text-cyan-400',
+      'bg-pink-500/10 border-pink-500/30 text-pink-400',
+    ];
+    return featureKeys.map((key, i) => ({
+      label: t.splashFeatures?.[key] || FEATURES_EN[i].label,
+      color: colors[i],
+    }));
+  };
 
   // Typewriter effect starts immediately
   useEffect(() => {
@@ -154,7 +172,7 @@ export function SplashScreen({ onStart }) {
               background: '#fb923c',
             }}
           />
-          Built entirely by Claude · Anthropic
+          {t.splashBuiltBy || 'Built entirely by Claude · Anthropic'}
         </div>
 
         {/* Logo */}
@@ -191,7 +209,7 @@ export function SplashScreen({ onStart }) {
 
         {/* Feature chips */}
         <div className="flex flex-wrap justify-center gap-2">
-          {FEATURES.map((f) => (
+          {getFeatures().map((f) => (
             <span
               key={f.label}
               className={`px-3 py-1 rounded-full border text-xs font-mono ${f.color}`}
@@ -225,7 +243,7 @@ export function SplashScreen({ onStart }) {
               }}
             />
             <span className="relative flex items-center gap-3 z-10">
-              <span>Start Interactive Demo</span>
+              <span>{t.splashStartDemo || 'Start Interactive Demo'}</span>
               <span className="text-xl transition-transform duration-200 group-hover:translate-x-1">
                 →
               </span>
@@ -235,7 +253,7 @@ export function SplashScreen({ onStart }) {
 
         {/* Footer */}
         <p className="text-slate-700 text-xs font-mono">
-          Vibe IDE · Demo v1.0 · 2025 · claude-sonnet-4-5
+          {t.splashFooter || 'Vibe IDE · Demo v1.0 · 2025 · claude-sonnet-4-5'}
         </p>
       </div>
     </div>

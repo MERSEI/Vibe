@@ -147,6 +147,8 @@ export default function VibeIDE() {
       {/* Cinematic splash screen — shown on first load */}
       {showSplash && (
         <SplashScreen
+          lang={lang}
+          t={t}
           onStart={() => {
             setShowSplash(false);
             setShowShowcase(true);
