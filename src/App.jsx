@@ -143,8 +143,15 @@ export default function VibeIDE() {
     }
   };
 
+  // Generate a stable random name for this session
+  const sessionName = React.useRef(
+    ['Alex', 'Sam', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Drew'][
+      Math.floor(Math.random() * 8)
+    ] + Math.floor(Math.random() * 90 + 10)
+  );
+
   return (
-    <RoomProvider id="vibe-ide-demo" initialPresence={{ name: 'Me', cursor: null }}>
+    <RoomProvider id="vibe-ide-demo" initialPresence={{ name: sessionName.current, cursor: null }}>
     <ErrorBoundary theme={theme}>
       {/* Cinematic splash screen — shown on first load */}
       {showSplash && (
