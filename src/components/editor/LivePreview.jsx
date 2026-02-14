@@ -86,9 +86,17 @@ export function LivePreview({
         .replace(/^import\s+.*$/gm, '// [import removed for sandbox]')
         .replace(/^export\s+(default\s+)?/gm, '');
 
+      // Sandbox globals — mock common project classes so default demo runs
+      const VibeAgent = class {
+        constructor(cfg) { this.name = cfg?.name ?? 'Agent'; this.model = cfg?.model ?? 'claude'; this.tools = cfg?.tools ?? []; }
+        async run(prompt) { mockConsole.log(`[${this.name}] Running: ${prompt}`); return { status: 'success', model: this.model }; }
+        compilePrompt(p) { return `[Agent: ${this.name}]\n${p}`; }
+        async execute(p) { mockConsole.log('Executing:', p); return { status: 'success' }; }
+      };
+
       // Execute in sandboxed context
-      const fn = new Function('console', sanitized);
-      fn(mockConsole);
+      const fn = new Function('console', 'VibeAgent', sanitized);
+      fn(mockConsole, VibeAgent);
 
       if (logs.length > 0) {
         setOutput(logs);
