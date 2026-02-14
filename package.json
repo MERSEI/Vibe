@@ -13,6 +13,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
+    "@liveblocks/client": "^1.10.0",
+    "@liveblocks/react": "^1.10.0",
+    "@liveblocks/yjs": "^1.10.0",
+    "@monaco-editor/react": "^4.7.0",
     "@opentelemetry/api": "^1.7.0",
     "@opentelemetry/sdk-trace-web": "^1.20.0",
     "clsx": "^2.0.0",
@@ -20,6 +24,7 @@
     "react-dom": "^18.2.0",
     "recharts": "^2.10.0",
     "tailwind-merge": "^2.0.0",
+    "yjs": "^13.6.0",
     "zustand": "^4.4.0"
   },
   "devDependencies": {
@@ -42,18 +47,12 @@
   "optionalDependencies": {
     "@langchain/anthropic": "^0.1.0",
     "@langchain/core": "^0.1.0",
-    "@liveblocks/client": "^1.10.0",
-    "@liveblocks/react": "^1.10.0",
-    "@liveblocks/yjs": "^1.10.0",
-    "@monaco-editor/react": "^4.7.0",
     "@opentelemetry/auto-instrumentations-node": "^0.40.0",
     "@opentelemetry/sdk-node": "^1.20.0",
     "langchain": "^0.1.0",
     "nats": "^2.18.0",
     "pg": "^8.11.0",
-    "pgvector": "^0.1.0",
-    "y-monaco": "^0.1.5",
-    "yjs": "^13.6.0"
+    "pgvector": "^0.1.0"
   },
   "engines": {
     "node": ">=18.0.0"
