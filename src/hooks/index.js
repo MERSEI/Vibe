@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useOthers, useMyPresence } from '../api/liveblocks/config';
 import { translations } from '../utils/i18n';
 import { CURSOR_COLORS } from '../utils/constants';
 
@@ -40,17 +41,27 @@ export function useI18n(initialLang = 'en') {
   return { lang, setLang, t, toggleLang };
 }
 
-// ============= useCollaborators (mock) =============
-const MOCK_COLLABORATORS = [
-  { id: 'u1', name: 'Alice', color: CURSOR_COLORS[1], cursor: { line: 5, col: 12 } },
-  { id: 'u2', name: 'Bob',   color: CURSOR_COLORS[2], cursor: { line: 18, col: 7 } },
-];
-
+// ============= useCollaborators =============
 export function useCollaborators() {
+  const others = useOthers();
+  const [, updateMyPresence] = useMyPresence();
+
+  const collaborators = others.map((other, index) => ({
+    id: other.connectionId,
+    name: other.presence?.name ?? `User-${other.connectionId}`,
+    color: CURSOR_COLORS[(index + 1) % CURSOR_COLORS.length],
+    cursor: other.presence?.cursor ?? null,
+    selection: null,
+  }));
+
+  const updatePresence = useCallback((presence) => {
+    updateMyPresence(presence);
+  }, [updateMyPresence]);
+
   return {
-    collaborators: MOCK_COLLABORATORS,
+    collaborators,
     isConnected: true,
-    updatePresence: () => {},
+    updatePresence,
     broadcastEvent: () => {},
   };
 }

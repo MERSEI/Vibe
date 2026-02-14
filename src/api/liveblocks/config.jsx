@@ -1,32 +1,33 @@
 /**
  * Liveblocks configuration (v1.x API via createRoomContext)
  *
- * For demo purposes, this exports mock providers that allow
- * the app to run without real Liveblocks collaboration.
- *
- * In production, you would:
- * 1. Set VITE_LIVEBLOCKS_PUBLIC_KEY environment variable
- * 2. Replace these mocks with real Liveblocks providers via createRoomContext
+ * Uses real Liveblocks when VITE_LIVEBLOCKS_PUBLIC_KEY is set,
+ * falls back to mock providers for demo/development.
  */
 
 import React from 'react';
+import { createClient } from '@liveblocks/client';
+import { createRoomContext } from '@liveblocks/react';
 
-// Mock providers - sufficient for demo/development
-export const RoomProvider = ({ children, id, initialPresence }) => {
-  return <>{children}</>;
-};
+const PUBLIC_KEY = import.meta.env.VITE_LIVEBLOCKS_PUBLIC_KEY;
 
-export const useOthers = () => {
-  // Return empty list of collaborators (mocked in useCollaborators hook instead)
-  return [];
-};
+let RoomProvider, useOthers, useMyPresence, useSelf, useRoom;
 
-export const useMyPresence = () => {
-  // Return empty presence and no-op setter
-  return [null, () => {}];
-};
+if (PUBLIC_KEY) {
+  const client = createClient({ publicApiKey: PUBLIC_KEY });
+  const ctx = createRoomContext(client);
+  RoomProvider    = ctx.RoomProvider;
+  useOthers       = ctx.useOthers;
+  useMyPresence   = ctx.useMyPresence;
+  useSelf         = ctx.useSelf;
+  useRoom         = ctx.useRoom;
+} else {
+  // Mock providers — app runs without real Liveblocks key
+  RoomProvider  = ({ children }) => <>{children}</>;
+  useOthers     = () => [];
+  useMyPresence = () => [null, () => {}];
+  useSelf       = () => null;
+  useRoom       = () => null;
+}
 
-export const useSelf = () => {
-  // Return null (no self presence)
-  return null;
-};
+export { RoomProvider, useOthers, useMyPresence, useSelf, useRoom };

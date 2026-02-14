@@ -15,6 +15,7 @@
  */
 
 import React, { Suspense, lazy, useEffect, useState } from 'react';
+import { RoomProvider } from './api/liveblocks/config';
 import { Layout } from './components/layout/Layout';
 import { EditorPanel } from './components/editor/EditorPanel';
 import { Toast } from './components/common/index';
@@ -143,6 +144,7 @@ export default function VibeIDE() {
   };
 
   return (
+    <RoomProvider id="vibe-ide-demo" initialPresence={{ name: 'Me', cursor: null }}>
     <ErrorBoundary theme={theme}>
       {/* Cinematic splash screen — shown on first load */}
       {showSplash && (
@@ -194,5 +196,6 @@ export default function VibeIDE() {
         />
       )}
     </ErrorBoundary>
+    </RoomProvider>
   );
 }

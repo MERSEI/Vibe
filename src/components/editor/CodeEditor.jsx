@@ -1,13 +1,16 @@
 /**
- * CodeEditor Component — Monaco Editor
+ * CodeEditor — Monaco Editor + Yjs CRDT via Liveblocks
  *
- * Full Monaco Editor with syntax highlighting, minimap, autocomplete.
- * Remote cursors from Liveblocks displayed as overlay.
+ * Real-time collaborative editing:
+ * - Monaco Editor for the editing experience
+ * - Yjs document synced via @liveblocks/yjs (LiveblocksProvider)
+ * - MonacoBinding connects Yjs text to Monaco model
+ * - Falls back gracefully when Liveblocks key is not set
  */
 
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
-import { CURSOR_COLORS } from '../../utils/constants';
+import { useRoom } from '../../api/liveblocks/config';
 
 export function CodeEditor({
   content,
@@ -19,36 +22,67 @@ export function CodeEditor({
   fontSize = 14,
   tabSize = 2,
 }) {
-  const containerRef = useRef(null);
+  const room = useRoom();
+  const editorRef = useRef(null);
+  const bindingRef = useRef(null);
+  const providerRef = useRef(null);
+  const ydocRef = useRef(null);
 
-  const handleEditorMount = useCallback((editor, monaco) => {
-    // Update tab size
+  const handleEditorMount = useCallback(async (editor) => {
+    editorRef.current = editor;
     editor.getModel()?.updateOptions({ tabSize });
 
-    // Keyboard shortcut: Ctrl+/ → toggle comment (Monaco already supports this)
-  }, [tabSize]);
+    // Only set up CRDT if we have a real Liveblocks room
+    if (!room) return;
+
+    const [{ default: LiveblocksProvider }, { MonacoBinding }, Y] = await Promise.all([
+      import('@liveblocks/yjs'),
+      import('y-monaco'),
+      import('yjs'),
+    ]);
+
+    const ydoc = new Y.Doc();
+    ydocRef.current = ydoc;
+
+    const provider = new LiveblocksProvider(room, ydoc);
+    providerRef.current = provider;
+
+    const yText = ydoc.getText('monaco');
+
+    const onSync = () => {
+      if (yText.toString() === '') {
+        yText.insert(0, content);
+      }
+      provider.off('sync', onSync);
+    };
+    provider.on('sync', onSync);
+
+    const binding = new MonacoBinding(
+      yText,
+      editor.getModel(),
+      new Set([editor]),
+      provider.awareness,
+    );
+    bindingRef.current = binding;
+  }, [room, content, tabSize]);
+
+  useEffect(() => {
+    return () => {
+      bindingRef.current?.destroy();
+      providerRef.current?.destroy();
+      ydocRef.current?.destroy();
+    };
+  }, []);
 
   const monacoTheme = theme === 'dark' ? 'vs-dark' : 'light';
 
   return (
-    <div ref={containerRef} className="relative h-full">
-      {/* Remote cursors overlay (Liveblocks presence) */}
-      {collaborators.map((collab, i) => (
-        <RemoteCursor
-          key={collab.id}
-          name={collab.name}
-          cursor={collab.cursor}
-          color={collab.color || CURSOR_COLORS[(i + 1) % CURSOR_COLORS.length]}
-          fontSize={fontSize}
-        />
-      ))}
-
+    <div className="relative h-full">
       <Editor
         height="100%"
         language={language}
-        value={content}
+        defaultValue={content}
         theme={monacoTheme}
-        onChange={(value) => onChange(value ?? '')}
         onMount={handleEditorMount}
         options={{
           minimap: { enabled: true },
@@ -63,41 +97,11 @@ export function CodeEditor({
           cursorBlinking: 'smooth',
           smoothScrolling: true,
           renderLineHighlight: 'line',
-          selectOnLineNumbers: true,
-          roundedSelection: true,
           padding: { top: 8 },
           fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace",
           fontLigatures: true,
         }}
       />
-    </div>
-  );
-}
-
-function RemoteCursor({ name, cursor, color, fontSize }) {
-  if (!cursor) return null;
-
-  const lineHeight = fontSize * 1.5;
-  const charWidth = fontSize * 0.6;
-
-  return (
-    <div
-      className="absolute z-20 pointer-events-none"
-      style={{
-        top: `${(cursor.line - 1) * lineHeight + 8}px`,
-        left: `${50 + cursor.col * charWidth}px`,
-      }}
-    >
-      <div
-        className="w-0.5 animate-pulse"
-        style={{ height: `${lineHeight - 4}px`, backgroundColor: color }}
-      />
-      <div
-        className="text-xs px-1.5 py-0.5 rounded -mt-5 ml-1 text-white whitespace-nowrap shadow-lg"
-        style={{ backgroundColor: color }}
-      >
-        {name}
-      </div>
     </div>
   );
 }
