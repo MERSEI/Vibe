@@ -58,6 +58,8 @@ export function EditorPanel({
           {/* Code Editor */}
           <div className="flex-1 min-w-0">
             <CodeEditor
+              key={selectedFile}
+              fileKey={selectedFile}
               content={content}
               onChange={(newContent) => onUpdateFile(selectedFile, newContent)}
               language={language}

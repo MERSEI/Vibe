@@ -18,6 +18,7 @@ export function CodeEditor({
   readOnly = false,
   fontSize = 14,
   tabSize = 2,
+  fileKey = 'default',
 }) {
   const room = useRoom();
   const editorRef = useRef(null);
@@ -37,7 +38,7 @@ export function CodeEditor({
 
     const ydoc = new Y.Doc();
     const provider = new LiveblocksProvider(room, ydoc);
-    const yText = ydoc.getText('monaco');
+    const yText = ydoc.getText(fileKey);
 
     // After Liveblocks syncs, either seed (first user) or load existing content into Monaco
     const onSync = () => {
@@ -114,7 +115,7 @@ export function CodeEditor({
       provider.destroy();
       ydoc.destroy();
     };
-  }, [room, content, tabSize, onChange]);
+  }, [room, content, tabSize, onChange, fileKey]);
 
   useEffect(() => () => cleanupRef.current?.(), []);
 
