@@ -1,8 +1,179 @@
 # 🚀 Vibe IDE — Production Roadmap
 
 ## Текущий статус
-**MVP Demo готов** — все 4 эпика реализованы как функциональные симуляции.
-Код разбит на компоненты, готов к интеграции реальных библиотек.
+**MVP Demo с реальными интеграциями** — живёт на Vercel, CRDT-коллаборация работает через Liveblocks + Yjs.
+
+---
+
+## ✅ Что уже реализовано (сделано)
+
+| # | Интеграция | Статус | Детали |
+|---|-----------|--------|--------|
+| ✅ | **Monaco Editor** | **РЕАЛЬНО** | `@monaco-editor/react` — minimap, autocomplete, Ctrl+F, multi-cursor |
+| ✅ | **Liveblocks Presence** | **РЕАЛЬНО** | WebSocket к liveblocks.io, счётчик и аватары коллабораторов |
+| ✅ | **Yjs CRDT** | **РЕАЛЬНО** | Синхронизация текста через `@liveblocks/yjs` + manual Yjs↔Monaco sync |
+| ✅ | **OpenTelemetry** | **РЕАЛЬНО** | `WebTracerProvider` + `InMemorySpanExporter`, трейсы в DebugViewer |
+| ✅ | **Zustand stores** | **РЕАЛЬНО** | Файлы, темы, UI, коллабораторы |
+| ✅ | **Vercel Deploy** | **РЕАЛЬНО** | Публичный URL, CI через GitHub |
+| ✅ | **Dark/Light theme** | **РЕАЛЬНО** | Toggle, persists в store |
+| ✅ | **i18n EN/RU** | **РЕАЛЬНО** | Переключение языка |
+| 🟡 | **Anthropic API** | **МОК** | Реалистичные ответы + задержка, OTEL трейсы пишутся |
+| 🟡 | **NATS EventBus** | **МОК** | `setInterval` генерирует события |
+| 🟡 | **pgvector / RAG** | **МОК** | Хардкоженные 3 документа |
+| 🟡 | **AgentBuilder DAG** | **МОК** | Визуальный drag-and-drop, run — мок |
+
+---
+
+## 🗺️ Дорожная карта по фазам
+
+---
+
+### Phase 2: Anthropic API — реальный LLM
+**Что нужно:** API ключ `sk-ant-...`
+**Сложность:** ~2 часа, 1 файл (`src/api/anthropic/client.js`)
+
+| Задача | Описание | Что менять |
+|--------|----------|------------|
+| 2.1 Реальный `sendMessage()` | Убрать мок, подключить SDK | `client.js` — раскомментировать реальный вызов |
+| 2.2 Streaming | Потоковый вывод токенов в UI | `client.js` + `RAGPlayground.jsx` + `AgentBuilder.jsx` |
+| 2.3 Tool use | Вызов инструментов через Claude | Новый `tools/` модуль |
+
+```js
+// src/api/anthropic/client.js — раскомментировать:
+const response = await anthropic.messages.create({
+  model: 'claude-opus-4-6',
+  max_tokens: 2048,
+  messages: [{ role: 'user', content: message }],
+});
+```
+
+**Env:** `VITE_ANTHROPIC_API_KEY=sk-ant-...` (уже есть прокси в vite.config.js)
+
+---
+
+### Phase 3: Cursor-style AI — автодополнение в Monaco
+**Что нужно:** Anthropic API ключ (Phase 2) + Monaco inline completions
+**Сложность:** ~1 день
+
+| Задача | Описание |
+|--------|----------|
+| 3.1 Inline suggestions | `monaco.languages.registerInlineCompletionsProvider` |
+| 3.2 Ghost text | Серый текст как в Cursor при Tab-дополнении |
+| 3.3 Debounce + контекст | Отправлять ±10 строк вокруг курсора |
+
+```js
+// В CodeEditor.jsx после onMount:
+monaco.languages.registerInlineCompletionsProvider('*', {
+  provideInlineCompletions: async (model, position) => {
+    const code = model.getValue();
+    const suggestion = await getAISuggestion(code, position);
+    return { items: [{ insertText: suggestion }] };
+  },
+  freeInlineCompletions: () => {},
+});
+```
+
+---
+
+### Phase 4: NATS — реальный event bus
+**Что нужно:** NATS сервер (self-hosted или nats.io cloud)
+**Сложность:** ~4 часа
+
+| Задача | Описание |
+|--------|----------|
+| 4.1 NATS.ws | `nats.ws` — NATS через WebSocket для браузера |
+| 4.2 Замена setInterval | Реальные события от агентов |
+| 4.3 Agent pub/sub | Агенты публикуют результаты в subjects |
+
+```bash
+# Docker быстрый старт:
+docker run -p 4222:4222 -p 8222:8222 nats -js
+# Добавить WebSocket listener: -p 9222:9222 --config nats-ws.conf
+```
+
+```js
+import { connect, JSONCodec } from 'nats.ws';
+const nc = await connect({ servers: 'ws://localhost:9222' });
+```
+
+**Env:** `VITE_NATS_URL=ws://localhost:9222`
+
+---
+
+### Phase 5: pgvector — реальный RAG
+**Что нужно:** PostgreSQL + pgvector + embedding API
+**Сложность:** ~1 день + backend сервер
+
+| Задача | Описание |
+|--------|----------|
+| 5.1 Backend API | Express/Fastify `/api/rag/search` и `/api/rag/ingest` |
+| 5.2 pgvector | PostgreSQL + `CREATE EXTENSION vector` |
+| 5.3 Embeddings | Voyage AI или OpenAI `text-embedding-3-small` |
+| 5.4 Hybrid search | FTS + vector cosine similarity |
+
+```sql
+CREATE EXTENSION vector;
+CREATE TABLE documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  content TEXT,
+  embedding vector(1024),
+  metadata JSONB
+);
+CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops);
+```
+
+**Вариант без backend:** Supabase (PostgreSQL + pgvector + REST API из коробки)
+
+---
+
+### Phase 6: Auth — Clerk или Auth0
+**Что нужно:** Clerk аккаунт (бесплатный tier)
+**Сложность:** ~2 часа
+
+| Задача | Описание |
+|--------|----------|
+| 6.1 Clerk install | `@clerk/clerk-react` |
+| 6.2 ClerkProvider | Обернуть App.jsx |
+| 6.3 Liveblocks auth | Использовать Clerk userId в Liveblocks presence |
+| 6.4 Protected routes | `useAuth()` hook |
+
+```jsx
+import { ClerkProvider, useUser } from '@clerk/clerk-react';
+// userId → Liveblocks presence name вместо 'Me'
+```
+
+---
+
+### Phase 7: Grafana / Tempo — внешний OTEL экспорт
+**Что нужно:** Grafana Cloud аккаунт (бесплатный tier)
+**Сложность:** ~2 часа
+
+Сейчас трейсы хранятся в памяти (`InMemorySpanExporter`).
+Заменить на `OTLPTraceExporter` → Grafana Tempo:
+
+```js
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+
+const exporter = new OTLPTraceExporter({
+  url: 'https://tempo-us-central1.grafana.net/tempo/api/push',
+  headers: { Authorization: `Basic ${btoa(instanceId + ':' + apiKey)}` },
+});
+```
+
+**Env:** `VITE_GRAFANA_ENDPOINT`, `VITE_GRAFANA_TOKEN`
+
+---
+
+## 📊 Приоритеты
+
+| Фаза | Что нужно | Импакт для демо |
+|------|-----------|----------------|
+| **2. Anthropic API** | API ключ | 🔥🔥🔥 Агенты реально отвечают |
+| **3. Cursor AI** | API ключ | 🔥🔥🔥 Главная WOW-фича |
+| **4. NATS** | Docker / nats.io | 🔥🔥 EventBus живой |
+| **6. Auth** | Clerk аккаунт | 🔥🔥 Юзеры с именами |
+| **5. pgvector** | PostgreSQL сервер | 🔥 RAG реальный |
+| **7. Grafana** | Grafana Cloud | 🔥 Трейсы наружу |
 
 ---
 
@@ -11,417 +182,33 @@
 ```
 vibe-ide/
 ├── src/
-│   ├── App.jsx                    # Main entry point
+│   ├── App.jsx                       # Main entry + RoomProvider
+│   ├── api/
+│   │   ├── anthropic/client.js       # 🟡 МОК → Phase 2
+│   │   ├── liveblocks/config.jsx     # ✅ РЕАЛЬНО (createRoomContext)
+│   │   └── telemetry/tracer.js       # ✅ РЕАЛЬНО (OTEL in-memory)
 │   ├── components/
-│   │   ├── layout/
-│   │   │   ├── Layout.jsx         # App shell
-│   │   │   ├── Header.jsx         # Top navigation
-│   │   │   ├── Sidebar.jsx        # Left nav tabs
-│   │   │   └── StatusBar.jsx      # Bottom status
 │   │   ├── editor/
-│   │   │   ├── EditorPanel.jsx    # Main editor container
-│   │   │   ├── FileTree.jsx       # File browser
-│   │   │   ├── CodeEditor.jsx     # Monaco-style editor
-│   │   │   ├── EditorTabs.jsx     # Tab bar
-│   │   │   └── LivePreview.jsx    # Sandpack-style preview
-│   │   ├── agents/
-│   │   │   └── AgentBuilder.jsx   # Agent orchestration
-│   │   ├── rag/
-│   │   │   └── RAGPlayground.jsx  # RAG interface
-│   │   ├── debug/
-│   │   │   ├── DebugViewer.jsx    # OTEL trace viewer
-│   │   │   └── EventBusInspector.jsx # NATS monitor
-│   │   ├── common/
-│   │   │   └── index.jsx          # Toast, Button, Modal, etc.
-│   │   └── index.js               # Component exports
-│   ├── hooks/
-│   │   └── index.js               # useTheme, useI18n, useCollaborators, etc.
-│   ├── utils/
-│   │   ├── constants.js           # App constants
-│   │   ├── i18n.js                # Translations
-│   │   └── syntax.js              # Syntax highlighting
-│   ├── stores/                    # Zustand/Jotai stores (TODO)
-│   ├── api/                       # API clients (TODO)
-│   └── types/                     # TypeScript types (TODO)
-├── docs/
-│   └── ROADMAP.md                 # This file
-└── tests/                         # Test files (TODO)
+│   │   │   ├── CodeEditor.jsx        # ✅ Monaco + Yjs CRDT
+│   │   │   └── LivePreview.jsx       # Sandbox executor
+│   │   ├── agents/AgentBuilder.jsx   # 🟡 МОК DAG
+│   │   ├── rag/RAGPlayground.jsx     # 🟡 МОК search
+│   │   └── debug/DebugViewer.jsx     # ✅ OTEL viewer
+│   ├── hooks/index.js                # ✅ useCollaborators (Liveblocks)
+│   └── stores/index.js               # ✅ Zustand
+├── docs/ROADMAP.md                   # Этот файл
+└── .env                              # VITE_LIVEBLOCKS_PUBLIC_KEY (не в git)
 ```
 
 ---
 
-## 🗺️ Дорожная карта по фазам
+## ⌨️ Быстрый старт
 
-### Phase 1: Core Infrastructure (2-3 недели)
-**Цель:** Превратить симуляции в реальные интеграции
-
-| Задача | Описание | Библиотеки | Приоритет |
-|--------|----------|------------|-----------|
-| 1.1 Monaco Integration | Заменить кастомный редактор на Monaco | `@monaco-editor/react` | 🔴 Critical |
-| 1.2 Liveblocks Setup | Настроить CRDT синхронизацию | `@liveblocks/client`, `@liveblocks/react`, `yjs`, `y-monaco` | 🔴 Critical |
-| 1.3 File System API | Реальная работа с файлами | `@anthropic-ai/sdk` (для Claude), локальный fs | 🟡 High |
-| 1.4 State Management | Глобальное состояние | `zustand` или `jotai` | 🟡 High |
-| 1.5 TypeScript Migration | Типизация всего кода | `typescript` | 🟢 Medium |
-
-**Детали 1.1 — Monaco Integration:**
-```jsx
-// Заменить CodeEditor.jsx на:
-import Editor from '@monaco-editor/react';
-import * as Y from 'yjs';
-import { MonacoBinding } from 'y-monaco';
-
-function MonacoEditor({ content, onChange, language }) {
-  const handleMount = (editor, monaco) => {
-    // Setup Yjs binding для CRDT
-    const ydoc = new Y.Doc();
-    const yText = ydoc.getText('monaco');
-    new MonacoBinding(yText, editor.getModel(), new Set([editor]));
-  };
-  
-  return (
-    <Editor
-      height="100%"
-      language={language}
-      value={content}
-      onChange={onChange}
-      onMount={handleMount}
-      theme="vs-dark"
-      options={{
-        minimap: { enabled: true },
-        fontSize: 14,
-        formatOnPaste: true,
-        automaticLayout: true,
-      }}
-    />
-  );
-}
+```bash
+git clone https://github.com/MERSEI/Vibe.git
+cd Vibe
+npm install
+echo "VITE_LIVEBLOCKS_PUBLIC_KEY=pk_dev_..." > .env
+npm run dev
+# Открыть в двух вкладках — CRDT работает
 ```
-
-**Детали 1.2 — Liveblocks:**
-```jsx
-// В App.jsx
-import { createClient } from '@liveblocks/client';
-import { LiveblocksProvider, RoomProvider } from '@liveblocks/react';
-
-const client = createClient({
-  publicApiKey: process.env.LIVEBLOCKS_PUBLIC_KEY,
-});
-
-// Обернуть приложение:
-<LiveblocksProvider client={client}>
-  <RoomProvider id="vibe-ide-room" initialPresence={{ cursor: null }}>
-    <App />
-  </RoomProvider>
-</LiveblocksProvider>
-```
-
----
-
-### Phase 2: Agent SDK (2-3 недели)
-**Цель:** Реальная оркестрация AI агентов
-
-| Задача | Описание | Библиотеки | Приоритет |
-|--------|----------|------------|-----------|
-| 2.1 LangChain Wrapper | Базовый VibeAgent класс | `langchain`, `@langchain/anthropic` | 🔴 Critical |
-| 2.2 Multi-Agent Runner | DAG execution с async channels | `nats.js`, custom DAG engine | 🟡 High |
-| 2.3 Tool Registry | Регистрация и вызов tools | Custom + LangChain tools | 🟡 High |
-| 2.4 Streaming Support | Потоковый вывод LLM | `@anthropic-ai/sdk` | 🟢 Medium |
-
-**Детали 2.1 — LangChain Wrapper:**
-```typescript
-// src/api/agents/VibeAgent.ts
-import { ChatAnthropic } from '@langchain/anthropic';
-import { AgentExecutor, createToolCallingAgent } from 'langchain/agents';
-import { ChatPromptTemplate } from '@langchain/core/prompts';
-
-export class VibeAgent {
-  private executor: AgentExecutor;
-  
-  constructor(config: AgentConfig) {
-    const llm = new ChatAnthropic({
-      modelName: config.model,
-      temperature: config.temperature,
-    });
-    
-    const prompt = ChatPromptTemplate.fromMessages([
-      ['system', config.systemPrompt],
-      ['human', '{input}'],
-      ['placeholder', '{agent_scratchpad}'],
-    ]);
-    
-    const agent = createToolCallingAgent({
-      llm,
-      tools: config.tools,
-      prompt,
-    });
-    
-    this.executor = new AgentExecutor({ agent, tools: config.tools });
-  }
-  
-  async run(input: string) {
-    return this.executor.invoke({ input });
-  }
-}
-```
-
-**Детали 2.2 — DAG Execution:**
-```typescript
-// src/api/agents/DAGRunner.ts
-import { connect, JSONCodec } from 'nats';
-
-interface DAGNode {
-  id: string;
-  agent: VibeAgent;
-  inputs: string[];
-  outputs: string[];
-}
-
-export class DAGRunner {
-  private nc: NatsConnection;
-  private jc = JSONCodec();
-  
-  async execute(dag: DAGNode[]) {
-    this.nc = await connect({ servers: process.env.NATS_URL });
-    
-    // Топологическая сортировка
-    const sorted = this.topologicalSort(dag);
-    
-    for (const node of sorted) {
-      // Ждём все inputs
-      const inputs = await this.gatherInputs(node.inputs);
-      
-      // Выполняем агента
-      const result = await node.agent.run(inputs);
-      
-      // Публикуем результат
-      for (const output of node.outputs) {
-        this.nc.publish(output, this.jc.encode(result));
-      }
-    }
-  }
-}
-```
-
----
-
-### Phase 3: RAG Pipeline (2-3 недели)
-**Цель:** Полноценный retrieval-augmented generation
-
-| Задача | Описание | Библиотеки | Приоритет |
-|--------|----------|------------|-----------|
-| 3.1 PgVector Setup | Postgres + pgvector extension | `pg`, `pgvector` | 🔴 Critical |
-| 3.2 Embedding Pipeline | Документ → chunks → embeddings | `@anthropic-ai/sdk`, `langchain` | 🔴 Critical |
-| 3.3 Hybrid Search | BM25 + vector search | `pg_bm25` или custom | 🟡 High |
-| 3.4 Chunking Strategies | Recursive, semantic, fixed | `langchain/text_splitter` | 🟢 Medium |
-
-**Детали 3.1 — PgVector Migration:**
-```sql
--- migrations/001_pgvector.sql
-CREATE EXTENSION IF NOT EXISTS vector;
-
-CREATE TABLE documents (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  content TEXT NOT NULL,
-  embedding vector(1536),
-  metadata JSONB,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
-```
-
-**Детали 3.2 — Ingest Pipeline:**
-```typescript
-// src/api/rag/IngestPipeline.ts
-import { RecursiveCharacterTextSplitter } from 'langchain/text_splitters';
-import Anthropic from '@anthropic-ai/sdk';
-
-export class IngestPipeline {
-  private splitter = new RecursiveCharacterTextSplitter({
-    chunkSize: 512,
-    chunkOverlap: 50,
-  });
-  
-  private anthropic = new Anthropic();
-  
-  async ingest(document: string, metadata: object) {
-    // 1. Split into chunks
-    const chunks = await this.splitter.splitText(document);
-    
-    // 2. Generate embeddings
-    const embeddings = await Promise.all(
-      chunks.map(chunk => this.embed(chunk))
-    );
-    
-    // 3. Store in pgvector
-    for (let i = 0; i < chunks.length; i++) {
-      await db.query(
-        'INSERT INTO documents (content, embedding, metadata) VALUES ($1, $2, $3)',
-        [chunks[i], embeddings[i], metadata]
-      );
-    }
-  }
-  
-  private async embed(text: string) {
-    const response = await this.anthropic.messages.create({
-      model: 'claude-3-haiku-20240307',
-      max_tokens: 1,
-      messages: [{ role: 'user', content: text }],
-    });
-    // В реальности использовать embedding API (OpenAI или Voyage)
-  }
-}
-```
-
----
-
-### Phase 4: Observability (1-2 недели)
-**Цель:** Полная видимость в работу системы
-
-| Задача | Описание | Библиотеки | Приоритет |
-|--------|----------|------------|-----------|
-| 4.1 OTEL Integration | Трейсинг всех LLM вызовов | `@opentelemetry/sdk-node`, `@opentelemetry/auto-instrumentations-node` | 🔴 Critical |
-| 4.2 Grafana Stack | Tempo + Prometheus + Grafana | Docker Compose / Helm | 🟡 High |
-| 4.3 Cost Tracking | Подсчёт токенов и стоимости | Custom middleware | 🟡 High |
-| 4.4 Error Overlay | Красивые ошибки в UI | React Error Boundary | 🟢 Medium |
-
-**Детали 4.1 — OTEL Setup:**
-```typescript
-// src/api/telemetry/tracing.ts
-import { NodeSDK } from '@opentelemetry/sdk-node';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { Resource } from '@opentelemetry/resources';
-
-const sdk = new NodeSDK({
-  resource: new Resource({
-    'service.name': 'vibe-ide',
-  }),
-  traceExporter: new OTLPTraceExporter({
-    url: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
-  }),
-});
-
-sdk.start();
-
-// LLM call wrapper with tracing
-export async function tracedLLMCall(name: string, fn: () => Promise<any>) {
-  const span = tracer.startSpan(name);
-  try {
-    const result = await fn();
-    span.setAttribute('tokens.input', result.usage?.input_tokens);
-    span.setAttribute('tokens.output', result.usage?.output_tokens);
-    span.setAttribute('cost', calculateCost(result.usage));
-    return result;
-  } catch (error) {
-    span.recordException(error);
-    throw error;
-  } finally {
-    span.end();
-  }
-}
-```
-
----
-
-### Phase 5: Production Hardening (2-3 недели)
-**Цель:** Готовность к production deploy
-
-| Задача | Описание | Приоритет |
-|--------|----------|-----------|
-| 5.1 Authentication | Auth0 / Clerk интеграция | 🔴 Critical |
-| 5.2 Rate Limiting | Защита API endpoints | 🔴 Critical |
-| 5.3 Error Handling | Graceful degradation | 🟡 High |
-| 5.4 Performance | Code splitting, lazy loading | 🟡 High |
-| 5.5 Testing | Unit + Integration + E2E | 🟡 High |
-| 5.6 CI/CD | GitHub Actions pipeline | 🟢 Medium |
-| 5.7 Documentation | API docs, user guide | 🟢 Medium |
-
----
-
-## 📊 Оценка времени
-
-| Фаза | Длительность | Ресурсы |
-|------|--------------|---------|
-| Phase 1: Core | 2-3 недели | 1-2 dev |
-| Phase 2: Agents | 2-3 недели | 1-2 dev |
-| Phase 3: RAG | 2-3 недели | 1-2 dev |
-| Phase 4: Observability | 1-2 недели | 1 dev |
-| Phase 5: Hardening | 2-3 недели | 1-2 dev |
-| **ИТОГО** | **10-14 недель** | |
-
----
-
-## 🛠️ Tech Stack (финальный)
-
-### Frontend
-- **Framework:** React 18 + Vite
-- **Styling:** Tailwind CSS
-- **State:** Zustand
-- **Editor:** Monaco Editor
-- **Collaboration:** Liveblocks + Yjs
-- **Charts:** Recharts
-- **i18n:** react-i18next
-
-### Backend
-- **Runtime:** Node.js / Bun
-- **API:** tRPC или REST (Express/Fastify)
-- **Database:** PostgreSQL + pgvector
-- **Cache:** Redis
-- **Message Bus:** NATS
-- **Search:** PostgreSQL FTS + pg_bm25
-
-### AI/ML
-- **LLM Provider:** Anthropic Claude
-- **Agent Framework:** LangChain.js
-- **Embeddings:** OpenAI / Voyage AI
-- **Vector DB:** pgvector
-
-### DevOps
-- **Containers:** Docker
-- **Orchestration:** Kubernetes / Fly.io
-- **Monitoring:** Grafana + Tempo + Prometheus
-- **Tracing:** OpenTelemetry
-- **CI/CD:** GitHub Actions
-
----
-
-## ✅ Checklist для запуска
-
-### Pre-launch
-- [ ] Все Phase 1-4 завершены
-- [ ] Unit tests покрытие > 70%
-- [ ] E2E tests для критических flows
-- [ ] Security audit пройден
-- [ ] Performance benchmarks OK
-- [ ] Documentation готова
-
-### Launch day
-- [ ] Staging environment протестирован
-- [ ] Rollback plan готов
-- [ ] Monitoring alerts настроены
-- [ ] On-call schedule определён
-- [ ] Communication plan готов
-
-### Post-launch
-- [ ] Собирать user feedback
-- [ ] Monitor error rates
-- [ ] Iterate based on usage data
-
----
-
-## 🎯 Метрики успеха
-
-| Метрика | Target | Измерение |
-|---------|--------|-----------|
-| Time to first edit | < 3 sec | Performance monitoring |
-| Collaboration latency | < 100ms | Liveblocks metrics |
-| LLM response time | < 5 sec | OTEL traces |
-| Error rate | < 0.1% | Grafana dashboards |
-| User satisfaction | > 4.5/5 | NPS surveys |
-
----
-
-## 📞 Контакты
-
-Вопросы по roadmap → создать GitHub Issue
