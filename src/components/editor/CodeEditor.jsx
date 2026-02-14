@@ -1,11 +1,8 @@
 /**
  * CodeEditor — Monaco Editor + Yjs CRDT via Liveblocks
  *
- * Real-time collaborative editing:
- * - Monaco Editor for the editing experience
- * - Yjs document synced via @liveblocks/yjs (LiveblocksProvider)
- * - MonacoBinding connects Yjs text to Monaco model
- * - Falls back gracefully when Liveblocks key is not set
+ * Manual Yjs ↔ Monaco sync (avoids y-monaco dual-instance issue).
+ * Falls back gracefully when no Liveblocks room is available.
  */
 
 import React, { useRef, useCallback, useEffect } from 'react';
@@ -24,55 +21,84 @@ export function CodeEditor({
 }) {
   const room = useRoom();
   const editorRef = useRef(null);
-  const bindingRef = useRef(null);
-  const providerRef = useRef(null);
-  const ydocRef = useRef(null);
+  const cleanupRef = useRef(null);
+  const applyingRemote = useRef(false);
 
   const handleEditorMount = useCallback(async (editor) => {
     editorRef.current = editor;
     editor.getModel()?.updateOptions({ tabSize });
 
-    // Only set up CRDT if we have a real Liveblocks room
-    if (!room) return;
+    if (!room) return; // no Liveblocks key — plain Monaco
 
-    const [{ default: LiveblocksProvider }, { MonacoBinding }, Y] = await Promise.all([
+    const [{ default: LiveblocksProvider }, Y] = await Promise.all([
       import('@liveblocks/yjs'),
-      import('y-monaco'),
       import('yjs'),
     ]);
 
     const ydoc = new Y.Doc();
-    ydocRef.current = ydoc;
-
     const provider = new LiveblocksProvider(room, ydoc);
-    providerRef.current = provider;
-
     const yText = ydoc.getText('monaco');
 
-    const onSync = () => {
+    // Seed document once initial sync completes
+    const seed = () => {
       if (yText.toString() === '') {
-        yText.insert(0, content);
+        ydoc.transact(() => yText.insert(0, content));
       }
-      provider.off('sync', onSync);
     };
-    provider.on('sync', onSync);
+    if (provider.synced) {
+      seed();
+    } else {
+      provider.once('sync', seed);
+    }
 
-    const binding = new MonacoBinding(
-      yText,
-      editor.getModel(),
-      new Set([editor]),
-      provider.awareness,
-    );
-    bindingRef.current = binding;
-  }, [room, content, tabSize]);
+    // Monaco → Yjs: apply local edits to shared doc
+    const disposable = editor.onDidChangeModelContent((event) => {
+      if (applyingRemote.current) return;
+      ydoc.transact(() => {
+        for (const change of [...event.changes].reverse()) {
+          if (change.rangeLength > 0) yText.delete(change.rangeOffset, change.rangeLength);
+          if (change.text)            yText.insert(change.rangeOffset, change.text);
+        }
+      });
+      onChange?.(editor.getValue());
+    });
 
-  useEffect(() => {
-    return () => {
-      bindingRef.current?.destroy();
-      providerRef.current?.destroy();
-      ydocRef.current?.destroy();
+    // Yjs → Monaco: apply remote edits to editor
+    const yObserver = (yEvent) => {
+      if (yEvent.transaction.local) return;
+      applyingRemote.current = true;
+      const model = editor.getModel();
+      if (!model) return;
+      const edits = [];
+      let offset = 0;
+      for (const [type, len, content] of yEvent.changes.delta) {
+        if (type === 'retain') {
+          offset += len;
+        } else if (type === 'delete') {
+          const start = model.getPositionAt(offset);
+          const end   = model.getPositionAt(offset + len);
+          edits.push({ range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column }, text: '' });
+          // don't advance offset — deleted chars are gone
+        } else if (type === 'insert') {
+          const pos = model.getPositionAt(offset);
+          edits.push({ range: { startLineNumber: pos.lineNumber, startColumn: pos.column, endLineNumber: pos.lineNumber, endColumn: pos.column }, text: content });
+          offset += content.length;
+        }
+      }
+      if (edits.length > 0) editor.executeEdits('yjs-remote', edits);
+      applyingRemote.current = false;
     };
-  }, []);
+    yText.observe(yObserver);
+
+    cleanupRef.current = () => {
+      disposable.dispose();
+      yText.unobserve(yObserver);
+      provider.destroy();
+      ydoc.destroy();
+    };
+  }, [room, content, tabSize, onChange]);
+
+  useEffect(() => () => cleanupRef.current?.(), []);
 
   const monacoTheme = theme === 'dark' ? 'vs-dark' : 'light';
 
