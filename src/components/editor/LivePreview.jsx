@@ -86,17 +86,21 @@ export function LivePreview({
         .replace(/^import\s+.*$/gm, '// [import removed for sandbox]')
         .replace(/^export\s+(default\s+)?/gm, '');
 
-      // Sandbox globals — mock common project classes so default demo runs
-      const VibeAgent = class {
-        constructor(cfg) { this.name = cfg?.name ?? 'Agent'; this.model = cfg?.model ?? 'claude'; this.tools = cfg?.tools ?? []; }
-        async run(prompt) { mockConsole.log(`[${this.name}] Running: ${prompt}`); return { status: 'success', model: this.model }; }
-        compilePrompt(p) { return `[Agent: ${this.name}]\n${p}`; }
-        async execute(p) { mockConsole.log('Executing:', p); return { status: 'success' }; }
-      };
+      // Prepend mocks for project classes only when the user code doesn't define them
+      const mocks = [];
+      if (!/class\s+VibeAgent\b/.test(sanitized)) {
+        mocks.push(`class VibeAgent {
+  constructor(cfg) { this.name = cfg?.name ?? 'Agent'; this.model = cfg?.model ?? 'claude'; this.tools = cfg?.tools ?? []; }
+  async run(p) { console.log('[' + this.name + '] Running: ' + p); return { status: 'success' }; }
+  compilePrompt(p) { return '[Agent: ' + this.name + ']\\n' + p; }
+  async execute(p) { console.log('Executing:', p); return { status: 'success' }; }
+}`);
+      }
+      const wrapped = mocks.join('\n') + '\n' + sanitized;
 
       // Execute in sandboxed context
-      const fn = new Function('console', 'VibeAgent', sanitized);
-      fn(mockConsole, VibeAgent);
+      const fn = new Function('console', wrapped);
+      fn(mockConsole);
 
       if (logs.length > 0) {
         setOutput(logs);

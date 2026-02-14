@@ -71,18 +71,18 @@ export function CodeEditor({
       if (!model) return;
       const edits = [];
       let offset = 0;
-      for (const [type, len, content] of yEvent.changes.delta) {
-        if (type === 'retain') {
-          offset += len;
-        } else if (type === 'delete') {
+      for (const op of yEvent.changes.delta) {
+        if (op.retain !== undefined) {
+          offset += op.retain;
+        } else if (op.delete !== undefined) {
           const start = model.getPositionAt(offset);
-          const end   = model.getPositionAt(offset + len);
+          const end   = model.getPositionAt(offset + op.delete);
           edits.push({ range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column }, text: '' });
           // don't advance offset — deleted chars are gone
-        } else if (type === 'insert') {
+        } else if (op.insert !== undefined) {
           const pos = model.getPositionAt(offset);
-          edits.push({ range: { startLineNumber: pos.lineNumber, startColumn: pos.column, endLineNumber: pos.lineNumber, endColumn: pos.column }, text: content });
-          offset += content.length;
+          edits.push({ range: { startLineNumber: pos.lineNumber, startColumn: pos.column, endLineNumber: pos.lineNumber, endColumn: pos.column }, text: op.insert });
+          offset += op.insert.length;
         }
       }
       if (edits.length > 0) editor.executeEdits('yjs-remote', edits);
