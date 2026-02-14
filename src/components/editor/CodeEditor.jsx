@@ -39,16 +39,30 @@ export function CodeEditor({
     const provider = new LiveblocksProvider(room, ydoc);
     const yText = ydoc.getText('monaco');
 
-    // Seed document once initial sync completes
-    const seed = () => {
-      if (yText.toString() === '') {
+    // After Liveblocks syncs, either seed (first user) or load existing content into Monaco
+    const onSync = () => {
+      const existing = yText.toString();
+      if (existing === '') {
+        // First user: seed yjs with the file's default content
+        applyingRemote.current = true;
         ydoc.transact(() => yText.insert(0, content));
+        applyingRemote.current = false;
+      } else {
+        // Joining user: overwrite Monaco with the shared document content
+        applyingRemote.current = true;
+        const model = editor.getModel();
+        if (model) {
+          model.setValue(existing);
+          onChange?.(existing);
+        }
+        applyingRemote.current = false;
       }
     };
+
     if (provider.synced) {
-      seed();
+      onSync();
     } else {
-      provider.once('sync', seed);
+      provider.once('sync', onSync);
     }
 
     // Monaco → Yjs: apply local edits to shared doc
@@ -66,27 +80,29 @@ export function CodeEditor({
     // Yjs → Monaco: apply remote edits to editor
     const yObserver = (yEvent) => {
       if (yEvent.transaction.local) return;
-      applyingRemote.current = true;
       const model = editor.getModel();
       if (!model) return;
-      const edits = [];
-      let offset = 0;
-      for (const op of yEvent.changes.delta) {
-        if (op.retain !== undefined) {
-          offset += op.retain;
-        } else if (op.delete !== undefined) {
-          const start = model.getPositionAt(offset);
-          const end   = model.getPositionAt(offset + op.delete);
-          edits.push({ range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column }, text: '' });
-          // don't advance offset — deleted chars are gone
-        } else if (op.insert !== undefined) {
-          const pos = model.getPositionAt(offset);
-          edits.push({ range: { startLineNumber: pos.lineNumber, startColumn: pos.column, endLineNumber: pos.lineNumber, endColumn: pos.column }, text: op.insert });
-          offset += op.insert.length;
+      applyingRemote.current = true;
+      try {
+        const edits = [];
+        let offset = 0;
+        for (const op of yEvent.changes.delta) {
+          if (op.retain !== undefined) {
+            offset += op.retain;
+          } else if (op.delete !== undefined) {
+            const start = model.getPositionAt(offset);
+            const end   = model.getPositionAt(offset + op.delete);
+            edits.push({ range: { startLineNumber: start.lineNumber, startColumn: start.column, endLineNumber: end.lineNumber, endColumn: end.column }, text: '' });
+          } else if (op.insert !== undefined) {
+            const pos = model.getPositionAt(offset);
+            edits.push({ range: { startLineNumber: pos.lineNumber, startColumn: pos.column, endLineNumber: pos.lineNumber, endColumn: pos.column }, text: op.insert });
+            offset += op.insert.length;
+          }
         }
+        if (edits.length > 0) editor.executeEdits('yjs-remote', edits);
+      } finally {
+        applyingRemote.current = false;
       }
-      if (edits.length > 0) editor.executeEdits('yjs-remote', edits);
-      applyingRemote.current = false;
     };
     yText.observe(yObserver);
 
