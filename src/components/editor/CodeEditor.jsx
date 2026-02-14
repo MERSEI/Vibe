@@ -62,7 +62,9 @@ export function CodeEditor({
     if (provider.synced) {
       onSync();
     } else {
-      provider.once('sync', onSync);
+      // LiveblocksProvider emits 'synced' (not 'sync') with [boolean] arg
+      const onSyncEvent = (isSynced) => { if (isSynced) onSync(); };
+      provider.once('synced', onSyncEvent);
     }
 
     // Monaco → Yjs: apply local edits to shared doc
