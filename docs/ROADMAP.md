@@ -19,9 +19,10 @@
 | ✅ | **i18n EN/RU** | **РЕАЛЬНО** | Переключение языка |
 | ✅ | **Gemini API** | **РЕАЛЬНО** | `gemini-2.0-flash` через OpenAI-совместимый endpoint, fallback на мок |
 | ✅ | **AgentBuilder DAG** | **РЕАЛЬНО** | 7 шаблонов, drag-and-drop, реальные AI-ответы |
-| 🟡 | **NATS EventBus** | **МОК** | `setInterval` генерирует события → Phase 4 |
-| 🟡 | **pgvector / RAG** | **МОК** | 10 документов хардкод → Phase 3 |
-| 🟡 | **OTEL Export** | **IN-MEMORY** | Трейсы только локально → Phase 5 |
+| ✅ | **NATS EventBus** | **КОД НАПИСАН** | nats.ws клиент + mock fallback, нужен NATS сервер (см. Phase 4) |
+| ✅ | **pgvector / RAG** | **КОД НАПИСАН** | Backend + frontend готовы, нужно подключить БД (см. Phase 3) |
+| ✅ | **OTEL Export** | **КОД НАПИСАН** | Dual export (InMemory + Grafana Tempo), нужен Grafana Cloud (см. Phase 5) |
+| ✅ | **Clerk Auth** | **КОД НАПИСАН** | ClerkProvider + mock fallback, нужен Clerk аккаунт (см. Phase 6) |
 
 ---
 
@@ -61,190 +62,235 @@ monaco.languages.registerInlineCompletionsProvider('*', {
 
 ---
 
-### Phase 3: pgvector — реальный RAG
-**Что нужно:** PostgreSQL + pgvector. Рекомендуется Supabase (бесплатный tier).
-**Сложность:** ~1-2 дня
+### Phase 3: pgvector + Backend — реальный RAG ✅ КОД НАПИСАН
 
-| Задача | Описание |
-|--------|----------|
-| 3.1 Supabase проект | Создать на supabase.com, включить pgvector |
-| 3.2 SQL схема | Таблица `documents` с vector(768) колонкой |
-| 3.3 Embeddings | Gemini Embedding API (`text-embedding-004`, 768 dim, бесплатно) |
-| 3.4 Backend API | Vite proxy → Supabase REST для `/api/rag/search` и `/api/rag/ingest` |
-| 3.5 Hybrid search | FTS (ts_vector) + vector cosine similarity (pgvector `<=>`) |
+> **Статус:** Весь код backend и frontend написан. Для активации реального RAG нужно только подключить PostgreSQL с pgvector. Без бекенда фронтенд автоматически использует мок-данные.
 
-```sql
--- Supabase SQL Editor:
-CREATE EXTENSION IF NOT EXISTS vector;
+**Архитектура:**
 
-CREATE TABLE documents (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  content TEXT NOT NULL,
-  embedding vector(768),
-  metadata JSONB DEFAULT '{}'
-);
-
-CREATE INDEX ON documents USING ivfflat (embedding vector_cosine_ops)
-  WITH (lists = 100);
-
--- Функция гибридного поиска:
-CREATE OR REPLACE FUNCTION hybrid_search(
-  query_text TEXT,
-  query_embedding vector(768),
-  match_count INT DEFAULT 5
-)
-RETURNS TABLE(id UUID, content TEXT, score FLOAT, metadata JSONB) AS $$
-  SELECT id, content,
-    (0.5 * (1 - (embedding <=> query_embedding)) +
-     0.5 * ts_rank(to_tsvector('english', content), plainto_tsquery(query_text))) AS score,
-    metadata
-  FROM documents
-  ORDER BY score DESC
-  LIMIT match_count;
-$$ LANGUAGE sql;
+```
+Frontend (Vite :3000)  →  /api/rag/*  →  Backend (Express :3001)  →  PostgreSQL + pgvector
+                                                   ↓
+                                            Gemini text-embedding-004
 ```
 
-```js
-// src/api/rag/client.js (новый файл):
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+#### Написанные файлы
 
-export async function ragSearch(query) {
-  // 1. Получить embedding через Gemini
-  const embRes = await fetch('/api/gemini/v1beta/models/text-embedding-004:embedContent', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${import.meta.env.VITE_GEMINI_API_KEY}` },
-    body: JSON.stringify({ content: { parts: [{ text: query }] } }),
-  });
-  const { embedding } = await embRes.json();
+```
+backend/
+├── package.json        # Express + pg + pgvector + dotenv + cors
+├── .env.example        # Документация env-переменных
+├── index.js            # Express сервер (порт 3001)
+├── db.js               # pg Pool из DATABASE_URL
+├── embeddings.js       # Gemini text-embedding-004 (768 dims)
+├── schema.sql          # Идемпотентная DDL — таблица, индексы, hybrid_search()
+└── routes/
+    ├── health.js       # GET  /api/rag/health  — проверка подключения к БД
+    ├── search.js       # POST /api/rag/search  — vector / bm25 / hybrid
+    └── ingest.js       # POST /api/rag/ingest  — эмбеддинг + сохранение
 
-  // 2. Hybrid search в pgvector
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/hybrid_search`, {
-    method: 'POST',
-    headers: { 'apikey': SUPABASE_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query_text: query, query_embedding: embedding.values }),
-  });
-  return res.json();
-}
+src/api/rag/client.js   # Fetch-обёртка с health-check и fallback на мок
 ```
 
-**Env:** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-**Альтернатива:** self-hosted PostgreSQL + pgvector + Express backend
+#### 🔌 Инструкция: Подключение своей БД
+
+##### Вариант A — Docker (локальная разработка)
+
+```bash
+# 1. Запустить PostgreSQL с pgvector:
+docker run -d --name pgvector \
+  -e POSTGRES_PASSWORD=secret \
+  -e POSTGRES_DB=vibe_rag \
+  -p 5432:5432 \
+  pgvector/pgvector:pg16
+
+# 2. Применить схему (таблица, индексы, функция hybrid_search):
+psql postgresql://postgres:secret@localhost:5432/vibe_rag -f backend/schema.sql
+
+# 3. Настроить backend:
+cp backend/.env.example backend/.env
+# Отредактировать backend/.env:
+#   DATABASE_URL=postgresql://postgres:secret@localhost:5432/vibe_rag
+#   GEMINI_API_KEY=AIzaSy...  (тот же ключ что во фронтенде)
+
+# 4. Запустить backend:
+cd backend && npm install && npm run dev    # порт 3001
+
+# 5. Запустить frontend (в другом терминале):
+npm run dev                                  # порт 3000
+# RAG Playground покажет бейдж "Connected" вместо "Mock mode"
+```
+
+##### Вариант B — Supabase (бесплатный хостинг)
+
+1. Создать проект на [supabase.com](https://supabase.com)
+2. Включить расширение Vector: Database → Extensions → vector → Enable
+3. Запустить `backend/schema.sql` в SQL Editor (пропустить строку `CREATE EXTENSION` — Supabase уже включил)
+4. Скопировать connection string: Project Settings → Database → Connection String (URI)
+5. В `backend/.env`: `DATABASE_URL=<connection-string>`
+
+##### Вариант C — Neon (бесплатный хостинг, pgvector предустановлен)
+
+1. Создать проект на [neon.tech](https://neon.tech)
+2. pgvector уже предустановлен
+3. Запустить `backend/schema.sql` в SQL Editor
+4. В `backend/.env`: `DATABASE_URL=<neon-connection-string>`
+
+#### Env переменные
+
+| Переменная | Где | Значение |
+|-----------|-----|---------|
+| `DATABASE_URL` | `backend/.env` | `postgresql://postgres:secret@localhost:5432/vibe_rag` |
+| `GEMINI_API_KEY` | `backend/.env` | тот же ключ что `VITE_GEMINI_API_KEY` |
+| `PORT` | `backend/.env` | `3001` (по умолчанию) |
+| `VITE_RAG_BACKEND_URL` | `frontend .env` | не нужно в dev (Vite proxy), для prod: URL бекенда |
+
+#### Как это работает
+
+- **С бекендом:** RAG Playground → `ragSearch()` → health-check OK → `POST /api/rag/search` → PostgreSQL + pgvector → реальные результаты
+- **Без бекенда:** RAG Playground → `ragSearch()` → health-check FAIL → fallback на `RAG_MOCK_RESULTS` → мок-данные (UI работает как раньше)
+- **Режимы поиска:**
+  - `hybrid` — BM25 + vector (вес 60/40), функция `hybrid_search()` в PostgreSQL
+  - `vector` — cosine similarity через pgvector, нужен GEMINI_API_KEY
+  - `bm25` — полнотекстовый поиск, работает без Gemini ключа
 
 ---
 
-### Phase 4: NATS — реальный event bus
-**Что нужно:** NATS сервер (self-hosted Docker или nats.io cloud)
-**Сложность:** ~4-6 часов
+### Phase 4: NATS — реальный event bus ✅ КОД НАПИСАН
 
-| Задача | Описание |
-|--------|----------|
-| 4.1 NATS сервер | Docker с JetStream + WebSocket listener |
-| 4.2 `nats.ws` | Браузерный клиент через WebSocket |
-| 4.3 Замена setInterval | Реальные события от агентов через pub/sub |
-| 4.4 Agent pub/sub | Агенты публикуют результаты в subjects |
+> **Статус:** Клиент `nats.ws` и мок-генератор написаны. `EventBusInspector` подключён. Для активации реального NATS нужно запустить сервер и задать `VITE_NATS_URL`.
+
+#### Написанные файлы
+
+```
+src/api/nats/
+├── client.js           # NATS WebSocket клиент + fallback на мок
+└── mockEvents.js       # Генератор мок-событий (извлечён из EventBusInspector)
+```
+
+- `EventBusInspector.jsx` обновлён — использует `subscribeToEvents()` из клиента, показывает бейдж "Live NATS" / "Mock"
+
+#### 🔌 Инструкция: Подключение NATS
 
 ```bash
-# Docker быстрый старт с JetStream + WebSocket:
+# 1. Запустить NATS с JetStream + WebSocket:
 docker run -d --name nats \
   -p 4222:4222 -p 8222:8222 -p 9222:9222 \
   nats -js -m 8222 --websocket_port 9222
+
+# 2. Добавить в .env фронтенда:
+echo "VITE_NATS_URL=ws://localhost:9222" >> .env
+
+# 3. Перезапустить фронтенд:
+npm run dev
+# EventBusInspector покажет бейдж "Live NATS" вместо "Mock"
 ```
 
-```js
-// src/api/nats/client.js (новый файл):
-import { connect, JSONCodec } from 'nats.ws';
+#### Публикация событий из бекенда
 
-const jc = JSONCodec();
-let nc = null;
+Для отправки реальных событий из backend (или другого сервиса):
 
-export async function getNatsConnection() {
-  if (!nc) {
-    nc = await connect({ servers: import.meta.env.VITE_NATS_URL ?? 'ws://localhost:9222' });
-  }
-  return nc;
-}
+```bash
+# Установить NATS CLI:
+# https://github.com/nats-io/natscli
 
-export async function publishAgentResult(agentId, result) {
-  const conn = await getNatsConnection();
-  conn.publish(`agents.${agentId}.result`, jc.encode(result));
-}
-
-export function subscribeToAgents(callback) {
-  getNatsConnection().then(conn => {
-    const sub = conn.subscribe('agents.*.result');
-    (async () => {
-      for await (const msg of sub) {
-        callback(jc.decode(msg.data));
-      }
-    })();
-    return sub;
-  });
-}
+# Опубликовать событие:
+nats pub agents.codereviewer.result '{"status":"success","duration":1234}'
+nats pub rag.search.response '{"query":"API docs","results":5}'
+nats pub llm.complete '{"model":"gemini-2.0-flash","tokens":500}'
 ```
 
 **Env:** `VITE_NATS_URL=ws://localhost:9222`
-**NATS subjects:** `agents.{id}.result`, `rag.search.response`, `llm.token.stream`, `system.health`
+**NATS subjects:** `agents.>`, `rag.>`, `llm.>`, `tools.>`, `system.>`
 
 ---
 
-### Phase 5: Grafana Cloud — внешний OTEL экспорт
-**Что нужно:** Grafana Cloud аккаунт (бесплатный tier, 14 дней retention)
-**Сложность:** ~2-3 часа
+### Phase 5: Grafana Cloud — внешний OTEL экспорт ✅ КОД НАПИСАН
 
-Сейчас трейсы хранятся только в памяти (`InMemorySpanExporter`, последние 50 спанов).
-Заменить на `OTLPTraceExporter` → Grafana Tempo для персистентного хранения и дашбордов.
+> **Статус:** Dual-export реализован в `tracer.js`. Трейсы всегда идут в InMemory (DebugViewer работает). Если заданы `VITE_GRAFANA_ENDPOINT` + `VITE_GRAFANA_TOKEN` — дополнительно экспортируются в Grafana Tempo.
 
-| Задача | Описание |
-|--------|----------|
-| 5.1 Grafana Cloud | Зарегистрироваться на grafana.com, создать stack |
-| 5.2 Tempo endpoint | Получить URL + Instance ID + API key |
-| 5.3 OTLPTraceExporter | Заменить InMemorySpanExporter в `tracer.js` |
-| 5.4 Дашборд | Импортировать готовый LLM Observability дашборд |
+#### Как это работает
 
-```js
-// src/api/telemetry/tracer.js — заменить экспортер:
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-web';
+- `tracer.js` всегда регистрирует `InMemorySpanExporter` (DebugViewer продолжает работать)
+- Если env-переменные Grafana заданы — динамически подключает `OTLPTraceExporter` (второй span processor)
+- Оба экспортёра работают одновременно
 
-const GRAFANA_ENDPOINT = import.meta.env.VITE_GRAFANA_ENDPOINT;
-const GRAFANA_TOKEN = import.meta.env.VITE_GRAFANA_TOKEN;
+#### 🔌 Инструкция: Подключение Grafana Cloud
 
-// Если ключи заданы — реальный Grafana, иначе in-memory
-const exporter = GRAFANA_ENDPOINT
-  ? new OTLPTraceExporter({
-      url: `${GRAFANA_ENDPOINT}/otlp/v1/traces`,
-      headers: { Authorization: `Basic ${btoa(GRAFANA_TOKEN)}` },
-    })
-  : new InMemorySpanExporter();
+1. **Зарегистрироваться** на [grafana.com](https://grafana.com) (бесплатный tier, 14 дней retention)
+2. **Создать stack** → перейти в Grafana Cloud Portal
+3. **Получить Tempo endpoint:**
+   - Grafana Cloud Portal → Tempo → Details
+   - Скопировать URL (например `https://tempo-us-central1.grafana.net`)
+4. **Создать API token:**
+   - Grafana Cloud Portal → Access Policies → Create token
+   - Scope: `traces:write`
+5. **Добавить в `.env` фронтенда:**
+
+```bash
+VITE_GRAFANA_ENDPOINT=https://tempo-us-central1.grafana.net
+VITE_GRAFANA_TOKEN=instanceId:apiKey
+# Формат токена: "instanceId:apiKey" (Instance ID из Tempo Details + API key)
 ```
 
-**Env:** `VITE_GRAFANA_ENDPOINT=https://tempo-us-central1.grafana.net`, `VITE_GRAFANA_TOKEN=instanceId:apiKey`
-**Метрики в Grafana:** latency per agent, token usage, cost per request, error rate
+6. **Перезапустить фронтенд** — в консоли появится `[otel] Grafana Tempo exporter подключён`
+7. **Проверить:** Grafana → Explore → Tempo → Search → увидеть трейсы из Vibe IDE
+
+#### Grafana Dashboard
+
+Рекомендуемые метрики для дашборда:
+- **Latency per agent** — распределение времени выполнения по агентам
+- **Token usage** — input/output токены за период
+- **Cost per request** — стоимость LLM вызовов
+- **Error rate** — процент ошибок по типам
+
+**Env:** `VITE_GRAFANA_ENDPOINT`, `VITE_GRAFANA_TOKEN`
 
 ---
 
-### Phase 6: Auth — Clerk
-**Что нужно:** Clerk аккаунт (бесплатный tier)
-**Сложность:** ~2-3 часа
+### Phase 6: Auth — Clerk ✅ КОД НАПИСАН
 
-| Задача | Описание |
-|--------|----------|
-| 6.1 Clerk install | `npm install @clerk/clerk-react` |
-| 6.2 ClerkProvider | Обернуть `App.jsx` |
-| 6.3 Liveblocks auth | Clerk `userId` → Liveblocks presence `name` |
-| 6.4 Protected routes | `useAuth()` hook перед загрузкой IDE |
+> **Статус:** ClerkProvider с mock fallback написан. Без Clerk ключа — всё работает как раньше (случайные имена гостей). С Clerk ключом — реальные имена и аватары в коллаборации.
 
-```jsx
-// App.jsx:
-import { ClerkProvider, useUser } from '@clerk/clerk-react';
+#### Написанные файлы
 
-// В RoomProvider presence:
-const { user } = useUser();
-initialPresence={{ name: user?.firstName ?? 'Anonymous', cursor: null }}
+```
+src/api/clerk/provider.jsx      # VibeClerkProvider + useVibeUser() + mock fallback
 ```
 
-**Env:** `VITE_CLERK_PUBLISHABLE_KEY=pk_live_...`
+- `App.jsx` — split на `VibeIDE` (ClerkProvider shell) → `VibeIDEInner` (useVibeUser + RoomProvider)
+- `hooks/index.js` — `avatar` добавлен в маппинг `useCollaborators`
+- `Header.jsx` — реальные аватары (img) или буквы (fallback)
+- `initialPresence` расширен: `{ name, avatar, cursor }`
+
+#### Как это работает
+
+- **Без Clerk:** `useVibeUser()` → `{ name: 'Alex42', avatar: null, isSignedIn: false }` — случайное гостевое имя, UI без изменений
+- **С Clerk:** `useVibeUser()` → `{ name: 'John Doe', avatar: 'https://...', isSignedIn: true }` — реальные данные из Clerk
+- **Аватары:** Если `avatar` URL — рендерится `<img>`. Если null — цветной круг с буквой (как раньше)
+- **Liveblocks presence:** имя и аватар из Clerk передаются в `initialPresence`, другие участники видят реальные данные
+
+#### 🔌 Инструкция: Подключение Clerk
+
+```bash
+# 1. Зарегистрироваться на https://clerk.com (бесплатный tier — 10K MAU)
+# 2. Создать приложение → Dashboard → API Keys
+
+# 3. Добавить Publishable Key в .env:
+echo "VITE_CLERK_PUBLISHABLE_KEY=pk_test_..." >> .env
+
+# 4. Перезапустить фронтенд:
+npm run dev
+# Появится Clerk Sign-In UI, аватары и имена — реальные
+```
+
+#### Настройка Clerk Dashboard
+
+1. **Authentication** → включить нужные методы (Email, Google, GitHub)
+2. **Customization** → Appearance → выбрать тему (тёмная подходит к Vibe IDE)
+3. **Production:** заменить `pk_test_...` на `pk_live_...` при деплое
+
+**Env:** `VITE_CLERK_PUBLISHABLE_KEY=pk_test_...`
 
 ---
 
@@ -253,10 +299,10 @@ initialPresence={{ name: user?.firstName ?? 'Anonymous', cursor: null }}
 | Фаза | Что нужно | Сложность | Импакт |
 |------|-----------|-----------|--------|
 | **2. Cursor AI** | Gemini ключ (уже есть) | ~1 день | 🔥🔥🔥 WOW-фича |
-| **3. pgvector RAG** | Supabase (бесплатно) | ~2 дня | 🔥🔥🔥 Реальная база |
-| **4. NATS** | Docker | ~half-day | 🔥🔥 Живой event bus |
-| **5. Grafana** | Grafana Cloud (бесплатно) | ~2-3 часа | 🔥🔥 Аналитика |
-| **6. Clerk Auth** | Clerk (бесплатно) | ~2-3 часа | 🔥 Юзеры с именами |
+| **3. pgvector RAG** | Docker + PostgreSQL | ✅ Код написан | 🔥🔥🔥 Реальная база |
+| **4. NATS** | Docker | ✅ Код написан | 🔥🔥 Живой event bus |
+| **5. Grafana** | Grafana Cloud (бесплатно) | ✅ Код написан | 🔥🔥 Аналитика |
+| **6. Clerk Auth** | Clerk (бесплатно) | ✅ Код написан | 🔥 Юзеры с именами |
 
 ---
 
@@ -265,22 +311,35 @@ initialPresence={{ name: user?.firstName ?? 'Anonymous', cursor: null }}
 ```
 vibe-ide/
 ├── src/
-│   ├── App.jsx                       # Main entry + RoomProvider
+│   ├── App.jsx                       # Main entry + VibeClerkProvider + RoomProvider
 │   ├── api/
 │   │   ├── anthropic/client.js       # ✅ РЕАЛЬНО (Gemini 2.0 Flash + мок fallback)
-│   │   ├── rag/client.js             # 🟡 МОК → Phase 3 (pgvector + Supabase)
-│   │   ├── nats/client.js            # 🟡 МОК → Phase 4 (NATS.ws)
+│   │   ├── clerk/provider.jsx        # ✅ РЕАЛЬНО (ClerkProvider + mock fallback)
+│   │   ├── rag/client.js             # ✅ РЕАЛЬНО (fetch + mock fallback)
+│   │   ├── nats/client.js            # ✅ РЕАЛЬНО (nats.ws + mock fallback)
+│   │   ├── nats/mockEvents.js       # Мок-генератор событий (fallback)
 │   │   ├── liveblocks/config.jsx     # ✅ РЕАЛЬНО (createRoomContext)
-│   │   └── telemetry/tracer.js       # ✅ РЕАЛЬНО (in-memory → Grafana Phase 5)
+│   │   └── telemetry/tracer.js       # ✅ РЕАЛЬНО (dual: InMemory + Grafana Tempo)
 │   ├── components/
 │   │   ├── editor/
 │   │   │   ├── CodeEditor.jsx        # ✅ Monaco + Yjs CRDT (+ inline AI Phase 2)
 │   │   │   └── LivePreview.jsx       # Sandbox executor
 │   │   ├── agents/AgentBuilder.jsx   # ✅ РЕАЛЬНО (7 шаблонов, Gemini)
-│   │   ├── rag/RAGPlayground.jsx     # 🟡 МОК → Phase 3
+│   │   ├── rag/RAGPlayground.jsx     # ✅ РЕАЛЬНО (подключён к backend)
 │   │   └── debug/DebugViewer.jsx     # ✅ OTEL viewer (→ Grafana Phase 5)
 │   ├── hooks/index.js                # ✅ useCollaborators (Liveblocks)
 │   └── stores/index.js               # ✅ Zustand
+├── backend/                          # ✅ РЕАЛЬНО (Phase 3 — нужна БД для активации)
+│   ├── package.json                  # Express + pg + pgvector + dotenv
+│   ├── .env.example                  # Документация env-переменных
+│   ├── index.js                      # Express сервер (порт 3001)
+│   ├── db.js                         # pg Pool из DATABASE_URL
+│   ├── embeddings.js                 # Gemini text-embedding-004
+│   ├── schema.sql                    # Идемпотентная DDL (psql -f schema.sql)
+│   └── routes/
+│       ├── health.js                 # GET  /api/rag/health
+│       ├── search.js                 # POST /api/rag/search
+│       └── ingest.js                 # POST /api/rag/ingest
 ├── docs/ROADMAP.md                   # Этот файл
 └── .env                              # API ключи (не в git)
 ```

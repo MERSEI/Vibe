@@ -2,56 +2,16 @@
  * EventBusInspector Component
  *
  * Real-time event stream visualization with:
- * - Channel filtering (implemented)
- * - Event replay functionality (implemented)
+ * - NATS WebSocket connection (nats.ws) with mock fallback
+ * - Channel filtering
+ * - Event replay functionality
  * - Live/pause toggle
- *
- * Production integration points:
- * - NATS message bus connection
- * - WebSocket-based live streaming
+ * - Connection status badge (Live NATS / Mock)
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { EVENT_CHANNELS } from '../../utils/constants';
-
-// Mock events for demo
-const generateMockEvent = () => {
-  const channels = Object.keys(EVENT_CHANNELS);
-  const channel = channels[Math.floor(Math.random() * channels.length)];
-  
-  const eventTypes = {
-    agents: ['agent.start', 'agent.complete', 'agent.error', 'agent.step'],
-    rag: ['rag.query', 'rag.embed', 'rag.search', 'rag.result'],
-    llm: ['llm.request', 'llm.stream', 'llm.complete', 'llm.error'],
-    tools: ['tool.invoke', 'tool.execute', 'tool.result', 'tool.error'],
-    system: ['system.init', 'system.ready', 'system.shutdown'],
-  };
-
-  const type = eventTypes[channel][Math.floor(Math.random() * eventTypes[channel].length)];
-  
-  return {
-    id: Date.now() + Math.random(),
-    channel,
-    type,
-    timestamp: new Date().toISOString().substr(11, 12),
-    data: generateMockData(type),
-  };
-};
-
-const generateMockData = (type) => {
-  const dataTemplates = {
-    'agent.start': { agent: 'CodeReviewer', task: 'analyze' },
-    'agent.complete': { status: 'success', duration: Math.floor(Math.random() * 2000) },
-    'rag.query': { query: 'API documentation', k: 5 },
-    'rag.search': { results: Math.floor(Math.random() * 10), latency: Math.floor(Math.random() * 100) },
-    'llm.request': { model: 'claude-3-opus', tokens: Math.floor(Math.random() * 2000) },
-    'llm.complete': { tokens: Math.floor(Math.random() * 1500), cost: (Math.random() * 0.02).toFixed(4) },
-    'tool.invoke': { tool: 'code_analysis', params: {} },
-    'tool.execute': { status: 'running' },
-  };
-  
-  return dataTemplates[type] || { event: type };
-};
+import { subscribeToEvents, getConnectionStatus } from '../../api/nats/client';
 
 export function EventBusInspector({ theme, t }) {
   const [events, setEvents] = useState([]);
@@ -59,19 +19,27 @@ export function EventBusInspector({ theme, t }) {
   const [filter, setFilter] = useState('all');
   const [isReplaying, setIsReplaying] = useState(false);
   const [replayEvents, setReplayEvents] = useState([]);
+  const [connectionStatus, setConnectionStatus] = useState('checking');
   const containerRef = useRef(null);
   const replayTimerRef = useRef(null);
 
-  // Simulate incoming events
+  // Subscribe to events (NATS or mock fallback)
   useEffect(() => {
     if (!isLive) return;
 
-    const interval = setInterval(() => {
-      const newEvent = generateMockEvent();
-      setEvents(prev => [...prev.slice(-50), newEvent]); // Keep last 50 events
-    }, 1500);
+    let cleanup = null;
 
-    return () => clearInterval(interval);
+    subscribeToEvents(
+      (event) => setEvents(prev => [...prev.slice(-50), event]),
+      { mockIntervalMs: 1500 }
+    ).then((cleanupFn) => {
+      cleanup = cleanupFn;
+      setConnectionStatus(getConnectionStatus());
+    });
+
+    return () => {
+      if (cleanup) cleanup();
+    };
   }, [isLive]);
 
   // Auto-scroll to bottom
@@ -126,7 +94,11 @@ export function EventBusInspector({ theme, t }) {
             📡 NATS Event Bus
           </span>
           {isLive ? (
-            <span className="text-xs text-green-500 animate-pulse">● Live</span>
+            connectionStatus === 'connected' ? (
+              <span className="text-xs text-green-500 animate-pulse">● Live NATS</span>
+            ) : (
+              <span className="text-xs text-yellow-500 animate-pulse">● Mock</span>
+            )
           ) : (
             <span className="text-xs text-yellow-500">⏸ Paused</span>
           )}

@@ -16,6 +16,7 @@
 
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { RoomProvider } from './api/liveblocks/config';
+import { VibeClerkProvider, useVibeUser } from './api/clerk/provider';
 import { Layout } from './components/layout/Layout';
 import { EditorPanel } from './components/editor/EditorPanel';
 import { Toast } from './components/common/index';
@@ -61,8 +62,21 @@ function PanelLoader() {
   );
 }
 
+// Shell: wraps everything in VibeClerkProvider so useVibeUser() works inside
 export default function VibeIDE() {
-  // Hooks (keeping backward compatibility while Zustand store exists as alt)
+  return (
+    <VibeClerkProvider>
+      <VibeIDEInner />
+    </VibeClerkProvider>
+  );
+}
+
+// Inner component: can safely call useVibeUser() (inside VibeClerkProvider)
+function VibeIDEInner() {
+  // Clerk / guest user data
+  const { name, avatar } = useVibeUser();
+
+  // Hooks
   const { theme, toggleTheme } = useTheme();
   const { lang, t, toggleLang } = useI18n();
   const { collaborators } = useCollaborators();
@@ -143,15 +157,8 @@ export default function VibeIDE() {
     }
   };
 
-  // Generate a stable random name for this session
-  const sessionName = React.useRef(
-    ['Alex', 'Sam', 'Jordan', 'Taylor', 'Morgan', 'Casey', 'Riley', 'Drew'][
-      Math.floor(Math.random() * 8)
-    ] + Math.floor(Math.random() * 90 + 10)
-  );
-
   return (
-    <RoomProvider id="vibe-ide-demo" initialPresence={{ name: sessionName.current, cursor: null }}>
+    <RoomProvider id="vibe-ide-demo" initialPresence={{ name, avatar, cursor: null }}>
     <ErrorBoundary theme={theme}>
       {/* Cinematic splash screen — shown on first load */}
       {showSplash && (

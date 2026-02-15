@@ -21,14 +21,15 @@ AI-Powered Development Environment with real-time collaboration, agent orchestra
 - **7 Templates** — ChatBot, RAG-Search, Self-Healing CLI, Code Review, SQL Generator, API Designer, Test Generator
 
 ### 🔍 Epic 3: RAG Pipeline
-- **pgvector Integration** — Vector similarity search (mock, real DB coming in Phase 3)
+- **pgvector + Express Backend** — Real PostgreSQL + pgvector backend with hybrid search. Falls back to mock data automatically if DB is not running
 - **Chunking Strategies** — Recursive, semantic, fixed-size
-- **Hybrid Search** — BM25 + vector search, 10-document mock corpus
+- **Hybrid Search** — BM25 + vector + hybrid modes via `hybrid_search()` PostgreSQL function
+- **Document Ingestion** — `POST /api/rag/ingest` with Gemini text-embedding-004 (768 dims)
 
 ### 🐛 Epic 4: Debugger
-- **OpenTelemetry Tracing** — Real in-memory traces, full span timeline
+- **OpenTelemetry Tracing** — Dual export: in-memory (DebugViewer) + Grafana Tempo (when configured)
 - **Token Usage Charts** — Cost and usage visualization
-- **Event Bus Inspector** — Real-time NATS monitoring (mock, real NATS coming in Phase 4)
+- **Event Bus Inspector** — NATS WebSocket client with mock fallback. Shows "Live NATS" / "Mock" badge
 
 ## 🚀 Quick Start
 
@@ -48,24 +49,55 @@ npm run dev
 # Without Gemini key — realistic mock responses are used automatically
 ```
 
+### Real RAG (optional — requires Docker)
+
+```bash
+# 1. Start PostgreSQL with pgvector:
+docker run -d --name pgvector -e POSTGRES_PASSWORD=secret -e POSTGRES_DB=vibe_rag -p 5432:5432 pgvector/pgvector:pg16
+
+# 2. Apply schema:
+psql postgresql://postgres:secret@localhost:5432/vibe_rag -f backend/schema.sql
+
+# 3. Configure backend:
+cp backend/.env.example backend/.env
+# Edit backend/.env — set DATABASE_URL and GEMINI_API_KEY
+
+# 4. Start backend:
+cd backend && npm install && npm run dev   # port 3001
+
+# RAG Playground will show "Connected" badge instead of "Mock mode"
+# See docs/ROADMAP.md Phase 3 for Supabase/Neon alternatives
+```
+
 ## 📁 Project Structure
 
 ```
 src/
-├── App.jsx                    # Main entry + Liveblocks RoomProvider
+├── App.jsx                    # Main entry + ClerkProvider + RoomProvider
 ├── api/
 │   ├── anthropic/client.js   # Gemini API (free) with mock fallback
+│   ├── clerk/provider.jsx    # Clerk auth with mock fallback
+│   ├── rag/client.js         # RAG backend client (fetch + mock fallback)
+│   ├── nats/client.js        # NATS WebSocket client with mock fallback
 │   ├── liveblocks/config.jsx # Real Liveblocks (createRoomContext pattern)
-│   └── telemetry/tracer.js   # Real OpenTelemetry (in-memory exporter)
+│   └── telemetry/tracer.js   # Real OpenTelemetry (dual: in-memory + Grafana)
 ├── components/
 │   ├── editor/
 │   │   ├── CodeEditor.jsx    # Monaco + Yjs CRDT sync
 │   │   └── LivePreview.jsx   # JS sandbox executor
 │   ├── agents/               # AgentBuilder DAG (7 templates)
-│   ├── rag/                  # RAG Playground
+│   ├── rag/                  # RAG Playground (connected to backend)
 │   └── debug/                # OTEL DebugViewer
 ├── hooks/index.js             # useCollaborators (Liveblocks)
 └── stores/index.js            # Zustand global state
+
+backend/
+├── package.json               # Express + pg + pgvector
+├── schema.sql                 # PostgreSQL DDL (idempotent)
+├── index.js                   # Express server (port 3001)
+├── db.js                      # pg Pool
+├── embeddings.js              # Gemini text-embedding-004
+└── routes/                    # health, search, ingest
 ```
 
 ## 🛠️ Tech Stack
@@ -77,11 +109,12 @@ src/
 | State | Zustand | ✅ Live |
 | Editor | Monaco Editor (`@monaco-editor/react`) | ✅ Live |
 | Collaboration | Liveblocks + Yjs CRDT | ✅ Live |
-| Tracing | OpenTelemetry (in-memory) | ✅ Live |
+| Tracing | OpenTelemetry (in-memory + Grafana Tempo) | ✅ Ready |
 | AI Agents | Gemini 2.0 Flash (free tier) | ✅ Live |
-| Vector DB | Mock (pgvector — Phase 3) | 🟡 Mock |
-| Event Bus | Mock (NATS — Phase 4) | 🟡 Mock |
-| Observability | In-memory (Grafana Cloud — Phase 5) | 🟡 Local |
+| Vector DB | pgvector + Express backend | ✅ Ready (needs DB) |
+| Event Bus | NATS WebSocket (nats.ws) + mock fallback | ✅ Ready (needs NATS) |
+| Observability | OTLP → Grafana Tempo + in-memory | ✅ Ready (needs Grafana) |
+| Auth | Clerk (@clerk/clerk-react) + mock fallback | ✅ Ready (needs Clerk key) |
 
 ## 📋 Roadmap
 
@@ -89,10 +122,10 @@ See [ROADMAP.md](./docs/ROADMAP.md) for the full integration plan.
 
 ### Next integrations (in priority order)
 1. **Cursor-style inline completions** — Ghost text in Monaco via `registerInlineCompletionsProvider`
-2. **pgvector + PostgreSQL** — Real RAG via Supabase or self-hosted PostgreSQL + Gemini Embeddings
-3. **NATS** — Real event bus (Docker: `docker run -p 4222:4222 nats -js`)
-4. **Grafana Cloud** — Export OTEL traces to Grafana Tempo (free tier)
-5. **Clerk Auth** — Named users in collaboration presence
+2. ~~**pgvector + PostgreSQL**~~ — **Done!** Backend + frontend code written. Connect your DB to activate (see ROADMAP Phase 3)
+3. ~~**NATS**~~ — **Done!** nats.ws client with mock fallback. Run Docker NATS to activate (see ROADMAP Phase 4)
+4. ~~**Grafana Cloud**~~ — **Done!** Dual OTLP export. Set `VITE_GRAFANA_ENDPOINT` + `VITE_GRAFANA_TOKEN` (see ROADMAP Phase 5)
+5. ~~**Clerk Auth**~~ — **Done!** ClerkProvider with mock fallback. Set `VITE_CLERK_PUBLISHABLE_KEY` to activate (see ROADMAP Phase 6)
 
 ## ⌨️ Keyboard Shortcuts
 

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "start": "node backend/index.js",
     "preview": "vite preview",
     "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
     "test": "vitest",
@@ -13,12 +14,15 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
+    "@clerk/clerk-react": "^5.0.0",
     "@liveblocks/client": "^1.10.0",
     "@liveblocks/react": "^1.10.0",
     "@liveblocks/yjs": "^1.10.0",
     "@monaco-editor/react": "^4.7.0",
     "@opentelemetry/api": "^1.7.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.48.0",
     "@opentelemetry/sdk-trace-web": "^1.20.0",
+    "nats.ws": "^1.19.0",
     "clsx": "^2.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -50,7 +54,6 @@
     "@opentelemetry/auto-instrumentations-node": "^0.40.0",
     "@opentelemetry/sdk-node": "^1.20.0",
     "langchain": "^0.1.0",
-    "nats": "^2.18.0",
     "pg": "^8.11.0",
     "pgvector": "^0.1.0"
   },
@@ -65,7 +68,9 @@
     "crdt",
     "rag",
     "agents",
-    "opentelemetry"
+    "opentelemetry",
+    "clerk",
+    "auth"
   ],
   "license": "MIT"
 }

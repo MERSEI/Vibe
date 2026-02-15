@@ -129,7 +129,7 @@ describe('VibeAgent', () => {
 All 3 tests pass. Coverage: 87%.`,
 ];
 
-const RAG_MOCK_RESULTS = (query) => JSON.stringify([
+export const RAG_MOCK_RESULTS = (query) => JSON.stringify([
   {
     id: 1,
     title: "Agent Orchestration Patterns",

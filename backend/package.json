@@ -1,0 +1,20 @@
+{
+  "name": "vibe-rag-backend",
+  "version": "1.0.0",
+  "description": "RAG backend for Vibe IDE — Express + PostgreSQL + pgvector",
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.18.0",
+    "pg": "^8.11.0",
+    "pgvector": "^0.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

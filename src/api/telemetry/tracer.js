@@ -1,19 +1,47 @@
 /**
- * OpenTelemetry In-Memory Tracer
+ * OpenTelemetry Tracer — Dual Export
  *
  * Browser-compatible OTEL setup (uses sdk-trace-web, NOT sdk-node).
  * Spans are stored in a Zustand store so DebugViewer can read them reactively.
+ *
+ * Экспорт:
+ * - Всегда: InMemorySpanExporter → DebugViewer работает локально
+ * - Если VITE_GRAFANA_ENDPOINT задан: OTLPTraceExporter → Grafana Tempo
+ *
+ * Env:
+ *   VITE_GRAFANA_ENDPOINT=https://tempo-us-central1.grafana.net
+ *   VITE_GRAFANA_TOKEN=instanceId:apiKey
  */
 
 import { WebTracerProvider, SimpleSpanProcessor, InMemorySpanExporter } from '@opentelemetry/sdk-trace-web';
 import { trace, context, SpanStatusCode } from '@opentelemetry/api';
 import { create } from 'zustand';
 
-// ---- In-memory span exporter (for raw OTEL span access if needed) ----
+// ---- In-memory span exporter (DebugViewer всегда работает) ----
 export const spanExporter = new InMemorySpanExporter();
 
 const provider = new WebTracerProvider();
 provider.addSpanProcessor(new SimpleSpanProcessor(spanExporter));
+
+// ---- Grafana Tempo OTLP exporter (если настроен) ----
+const GRAFANA_ENDPOINT = import.meta.env.VITE_GRAFANA_ENDPOINT;
+const GRAFANA_TOKEN = import.meta.env.VITE_GRAFANA_TOKEN;
+
+if (GRAFANA_ENDPOINT && GRAFANA_TOKEN) {
+  import('@opentelemetry/exporter-trace-otlp-http').then(({ OTLPTraceExporter }) => {
+    const otlpExporter = new OTLPTraceExporter({
+      url: `${GRAFANA_ENDPOINT}/otlp/v1/traces`,
+      headers: {
+        Authorization: `Basic ${btoa(GRAFANA_TOKEN)}`,
+      },
+    });
+    provider.addSpanProcessor(new SimpleSpanProcessor(otlpExporter));
+    console.log('[otel] Grafana Tempo exporter подключён:', GRAFANA_ENDPOINT);
+  }).catch((err) => {
+    console.warn('[otel] Не удалось подключить Grafana exporter:', err.message);
+  });
+}
+
 provider.register();
 
 export const tracer = trace.getTracer('vibe-ide', '0.1.0');

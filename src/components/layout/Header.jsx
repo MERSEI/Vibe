@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { CURSOR_COLORS } from '../../utils/constants';
+import { useVibeUser } from '../../api/clerk/provider';
 
 export function Header({
   theme,
@@ -73,27 +74,48 @@ export function Header({
 }
 
 function CollaboratorAvatars({ collaborators, theme, t }) {
+  const { name, avatar } = useVibeUser();
+
   return (
     <div className="flex items-center gap-1">
       {/* Self */}
-      <div
-        className="w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-medium ring-2 ring-purple-400/50"
-        style={{ backgroundColor: CURSOR_COLORS[0] }}
-        title={t.youAreHere}
-      >
-        Y
-      </div>
+      {avatar ? (
+        <img
+          src={avatar}
+          alt={name}
+          className="w-7 h-7 rounded-full ring-2 ring-purple-400/50 object-cover"
+          title={`${name} — ${t.youAreHere}`}
+        />
+      ) : (
+        <div
+          className="w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-medium ring-2 ring-purple-400/50"
+          style={{ backgroundColor: CURSOR_COLORS[0] }}
+          title={`${name} — ${t.youAreHere}`}
+        >
+          {name.charAt(0).toUpperCase()}
+        </div>
+      )}
 
       {/* Others */}
       {collaborators.map((c, i) => (
-        <div
-          key={c.id}
-          className="w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-medium ring-2 ring-white/30 -ml-2"
-          style={{ backgroundColor: c.color || CURSOR_COLORS[(i + 1) % CURSOR_COLORS.length] }}
-          title={`${c.name} ${t.editing}`}
-        >
-          {c.name.charAt(0)}
-        </div>
+        c.avatar ? (
+          <img
+            key={c.id}
+            src={c.avatar}
+            alt={c.name}
+            className="w-7 h-7 rounded-full ring-2 ring-white/30 -ml-2 object-cover"
+            title={`${c.name} ${t.editing}`}
+          />
+        ) : (
+          <div
+            key={c.id}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-xs text-white font-medium ring-2 ring-white/30 -ml-2"
+            style={{ backgroundColor: c.color || CURSOR_COLORS[(i + 1) % CURSOR_COLORS.length] }}
+            title={`${c.name} ${t.editing}`}
+          >
+            {c.name.charAt(0)}
+          </div>
+        )
       ))}
 
       {/* Count */}

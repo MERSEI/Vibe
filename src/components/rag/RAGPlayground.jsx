@@ -14,9 +14,9 @@
  * - pg_bm25 for keyword search
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { CHUNKING_STRATEGIES } from '../../utils/constants';
-import { sendMessage } from '../../api/anthropic/client';
+import { ragSearch, getBackendStatus } from '../../api/rag/client';
 
 // Search mode definitions
 const SEARCH_MODES = [
@@ -38,43 +38,34 @@ export function RAGPlayground({ theme, t }) {
   const [chunkSize, setChunkSize] = useState(512);
   const [ttl, setTtl] = useState(3600);
 
+  // Статус подключения к бекенду
+  const [connectionStatus, setConnectionStatus] = useState('checking');
+  const [docCount, setDocCount] = useState(null);
+
+  useEffect(() => {
+    getBackendStatus().then(data => {
+      setConnectionStatus(data.status === 'ok' ? 'connected' : 'mock');
+      if (data.documents != null) setDocCount(data.documents);
+    });
+  }, []);
+
   const handleSearch = useCallback(async () => {
     if (!query.trim()) return;
 
     setLoading(true);
     setSelectedResult(null);
     setSearchLatency(null);
-
     const start = performance.now();
 
-    const modeDescriptions = {
-      hybrid: 'hybrid BM25 + vector search (combine both bm25Score and vectorScore fields)',
-      vector: 'semantic vector search (include vectorScore, set bm25Score to null)',
-      bm25:   'keyword BM25 search (include bm25Score, set vectorScore to null)',
-    };
-
     try {
-      const result = await sendMessage({
-        model: 'claude-3-haiku-20240307',
-        systemPrompt: `You are a RAG search assistant. The user provides a query and you simulate a ${modeDescriptions[searchMode]}.
-Return exactly 3 relevant document chunks as a JSON array.
-Each item must have these fields: id (number), title (string), source (string filepath), score (0-1 float), bm25Score (float or null), vectorScore (float or null), chunk (relevant text passage 1-3 sentences), metadata (object with: tokens (number), lastUpdated (YYYY-MM-DD string), embedding (string like "text-embedding-3-large")).
-Respond with ONLY valid JSON array, no markdown, no explanation.`,
-        userMessage: query,
-        maxTokens: 1024,
-        traceName: `rag.search() — ${searchMode}`,
+      const results = await ragSearch(query, {
+        mode: searchMode,
+        limit: 5,
+        vectorWeight: searchMode === 'hybrid' ? 0.6 : undefined,
+        bm25Weight: searchMode === 'hybrid' ? 0.4 : undefined,
       });
 
-      let parsed;
-      try {
-        parsed = JSON.parse(result.text);
-      } catch {
-        // Claude sometimes wraps JSON in ```json ... ```
-        const match = result.text.match(/\[[\s\S]*\]/);
-        parsed = match ? JSON.parse(match[0]) : [];
-      }
-
-      setResults(Array.isArray(parsed) ? parsed : []);
+      setResults(Array.isArray(results) ? results : []);
       setSearchLatency(Math.round(performance.now() - start));
     } catch (err) {
       console.error('RAG search error:', err);
@@ -132,7 +123,7 @@ Respond with ONLY valid JSON array, no markdown, no explanation.`,
         />
 
         {/* Vector DB Stats */}
-        <VectorDBStats theme={theme} t={t} searchMode={searchMode} />
+        <VectorDBStats theme={theme} t={t} searchMode={searchMode} connectionStatus={connectionStatus} docCount={docCount} />
       </div>
 
       {/* Right Panel - Document Viewer */}
@@ -466,9 +457,18 @@ function ScoreBar({ label, score, color, theme }) {
   );
 }
 
-function VectorDBStats({ theme, t, searchMode }) {
+function VectorDBStats({ theme, t, searchMode, connectionStatus, docCount }) {
   const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
   const bgClass = theme === 'dark' ? 'bg-slate-800/30' : 'bg-gray-50';
+
+  const statusLabel = connectionStatus === 'connected'
+    ? `● Connected${docCount != null ? ` (${docCount} docs)` : ''}`
+    : connectionStatus === 'mock'
+      ? '○ Mock mode'
+      : '◌ Checking...';
+
+  const statusColor = connectionStatus === 'connected' ? 'text-green-500'
+    : connectionStatus === 'mock' ? 'text-yellow-500' : 'text-slate-400';
 
   return (
     <div className={`p-4 border-t ${borderClass} ${bgClass}`}>
@@ -478,16 +478,16 @@ function VectorDBStats({ theme, t, searchMode }) {
             📊 {t.vectorDb}: pgvector
           </span>
           <span className={theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}>
-            📦 1,247 vectors
+            📐 768 dims
           </span>
           <span className={theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}>
-            📐 512 dims
+            🧬 text-embedding-004
           </span>
           <span className={theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}>
             🔍 Mode: {SEARCH_MODES.find(m => m.id === searchMode)?.label}
           </span>
         </div>
-        <span className="text-green-500">● Connected</span>
+        <span className={statusColor}>{statusLabel}</span>
       </div>
     </div>
   );

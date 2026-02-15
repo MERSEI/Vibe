@@ -32,6 +32,9 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/gemini/, ''),
       },
+      '/api/rag': {
+        target: 'http://localhost:3001',
+      },
     },
   },
   preview: {

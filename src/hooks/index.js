@@ -49,6 +49,7 @@ export function useCollaborators() {
   const collaborators = others.map((other, index) => ({
     id: other.connectionId,
     name: other.presence?.name ?? `User-${other.connectionId}`,
+    avatar: other.presence?.avatar ?? null,
     color: CURSOR_COLORS[(index + 1) % CURSOR_COLORS.length],
     cursor: other.presence?.cursor ?? null,
     selection: null,
