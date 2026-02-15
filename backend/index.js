@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import https from 'https';
 import { fileURLToPath } from 'url';
 import { searchRouter } from './routes/search.js';
 import { ingestRouter } from './routes/ingest.js';
@@ -14,6 +15,43 @@ const PORT = process.env.PORT ?? 3001;
 const CORS_ORIGIN = process.env.CORS_ORIGIN ?? 'http://localhost:3000';
 
 app.use(cors({ origin: CORS_ORIGIN }));
+
+// ── Reverse proxy: /api/gemini/* → generativelanguage.googleapis.com ──
+// Registered BEFORE express.json() so the raw body stream is preserved.
+// In dev, Vite handles this proxy. In production, Express does it.
+app.use('/api/gemini', express.raw({ type: '*/*', limit: '2mb' }), (req, res) => {
+  const targetPath = req.originalUrl.replace(/^\/api\/gemini/, '');
+  const body = req.body && req.body.length ? req.body : null;
+
+  const options = {
+    hostname: 'generativelanguage.googleapis.com',
+    port: 443,
+    path: targetPath,
+    method: req.method,
+    headers: {
+      'content-type': req.headers['content-type'] || 'application/json',
+      'authorization': req.headers['authorization'] || '',
+    },
+  };
+  if (body) options.headers['content-length'] = body.length;
+
+  const proxyReq = https.request(options, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    proxyRes.pipe(res, { end: true });
+  });
+
+  proxyReq.on('error', (err) => {
+    console.error('[proxy] Gemini proxy error:', err.message);
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'Gemini proxy error: ' + err.message });
+    }
+  });
+
+  if (body) proxyReq.write(body);
+  proxyReq.end();
+});
+
+// JSON body parser for RAG routes
 app.use(express.json({ limit: '2mb' }));
 
 // Маршруты RAG
@@ -41,4 +79,5 @@ app.listen(PORT, () => {
   console.log('  GET  /api/rag/health');
   console.log('  POST /api/rag/search');
   console.log('  POST /api/rag/ingest');
+  console.log('  POST /api/gemini/* → proxy');
 });
