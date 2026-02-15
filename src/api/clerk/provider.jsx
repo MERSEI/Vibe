@@ -74,42 +74,22 @@ function RealClerkProvider({ children }) {
 }
 
 // Bridge component: reads Clerk user data and puts it into VibeUserContext
-// Shows SignIn screen when user is not authenticated
+// No auth gate here — handled in App.jsx after splash screen
 function ClerkUserBridge({ ClerkModule, children }) {
-  const { useUser, SignIn } = ClerkModule;
-  const { isLoaded, isSignedIn, user } = useUser();
+  const { useUser } = ClerkModule;
+  const { isSignedIn, user } = useUser();
 
-  // Clerk still loading
-  if (!isLoaded) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-        <div className="text-slate-400 text-sm">Loading...</div>
-      </div>
-    );
-  }
-
-  // Not signed in — show Clerk SignIn component
-  if (!isSignedIn) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-6">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-xl shadow-lg">
-            ⚡
-          </div>
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
-            Vibe IDE
-          </h1>
-        </div>
-        <SignIn routing="hash" />
-      </div>
-    );
-  }
-
-  const value = {
-    name: user.fullName || user.firstName || user.username || 'User',
-    avatar: user.imageUrl || null,
-    isSignedIn: true,
-  };
+  const value = (isSignedIn && user)
+    ? {
+        name: user.fullName || user.firstName || user.username || 'User',
+        avatar: user.imageUrl || null,
+        isSignedIn: true,
+      }
+    : {
+        name: 'Guest',
+        avatar: null,
+        isSignedIn: false,
+      };
 
   return (
     <VibeUserContext.Provider value={value}>
@@ -118,7 +98,37 @@ function ClerkUserBridge({ ClerkModule, children }) {
   );
 }
 
+// SignIn screen component (lazy-loaded from Clerk SDK)
+function ClerkSignInScreen() {
+  const [SignInComponent, setSignInComponent] = useState(null);
+
+  useEffect(() => {
+    import('@clerk/clerk-react').then((mod) => {
+      setSignInComponent(() => mod.SignIn);
+    });
+  }, []);
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center gap-6">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg flex items-center justify-center text-xl shadow-lg">
+          ⚡
+        </div>
+        <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">
+          Vibe IDE
+        </h1>
+      </div>
+      {SignInComponent ? (
+        <SignInComponent routing="hash" />
+      ) : (
+        <div className="text-slate-400 text-sm">Loading auth...</div>
+      )}
+    </div>
+  );
+}
+
 // ---- Exports ----
 export const VibeClerkProvider = CLERK_KEY ? RealClerkProvider : MockClerkProvider;
 export const useVibeUser = () => useContext(VibeUserContext);
 export const isClerkEnabled = !!CLERK_KEY;
+export { ClerkSignInScreen };

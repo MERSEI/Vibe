@@ -16,7 +16,7 @@
 
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { RoomProvider } from './api/liveblocks/config';
-import { VibeClerkProvider, useVibeUser } from './api/clerk/provider';
+import { VibeClerkProvider, useVibeUser, isClerkEnabled, ClerkSignInScreen } from './api/clerk/provider';
 import { Layout } from './components/layout/Layout';
 import { EditorPanel } from './components/editor/EditorPanel';
 import { Toast } from './components/common/index';
@@ -74,7 +74,7 @@ export default function VibeIDE() {
 // Inner component: can safely call useVibeUser() (inside VibeClerkProvider)
 function VibeIDEInner() {
   // Clerk / guest user data
-  const { name, avatar } = useVibeUser();
+  const { name, avatar, isSignedIn } = useVibeUser();
 
   // Hooks
   const { theme, toggleTheme } = useTheme();
@@ -157,21 +157,28 @@ function VibeIDEInner() {
     }
   };
 
+  // Flow: Splash → Clerk SignIn (if enabled & not signed in) → IDE
+  if (showSplash) {
+    return (
+      <SplashScreen
+        lang={lang}
+        t={t}
+        onStart={() => {
+          setShowSplash(false);
+          setShowShowcase(true);
+        }}
+      />
+    );
+  }
+
+  // Clerk auth gate: after splash, before IDE
+  if (isClerkEnabled && !isSignedIn) {
+    return <ClerkSignInScreen />;
+  }
+
   return (
     <RoomProvider id="vibe-ide-demo" initialPresence={{ name, avatar, cursor: null }}>
     <ErrorBoundary theme={theme}>
-      {/* Cinematic splash screen — shown on first load */}
-      {showSplash && (
-        <SplashScreen
-          lang={lang}
-          t={t}
-          onStart={() => {
-            setShowSplash(false);
-            setShowShowcase(true);
-          }}
-        />
-      )}
-
       <Layout
         theme={theme}
         lang={lang}
