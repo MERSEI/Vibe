@@ -74,6 +74,30 @@ export const AGENT_TEMPLATES = [
     model: 'claude-3-opus',
     tools: ['code_analysis', 'git_diff', 'security_scan'],
   },
+  {
+    id: 'sql-generator',
+    name: 'SQL Generator',
+    icon: '🗄️',
+    description: 'Natural language → SQL',
+    model: 'claude-3-sonnet',
+    tools: ['schema_reader', 'query_validator'],
+  },
+  {
+    id: 'api-designer',
+    name: 'API Designer',
+    icon: '🔌',
+    description: 'Design REST & GraphQL APIs',
+    model: 'claude-3-opus',
+    tools: ['openapi_spec', 'schema_validator', 'mock_generator'],
+  },
+  {
+    id: 'test-generator',
+    name: 'Test Generator',
+    icon: '🧪',
+    description: 'Auto-generate unit tests',
+    model: 'claude-3-haiku',
+    tools: ['ast_parser', 'test_runner', 'coverage_report'],
+  },
 ];
 
 // RAG chunking strategies
@@ -85,11 +109,11 @@ export const CHUNKING_STRATEGIES = [
 
 // LLM Models
 export const LLM_MODELS = [
-  { id: 'claude-3-opus', name: 'Claude 3 Opus', costPer1k: 0.015 },
-  { id: 'claude-3-sonnet', name: 'Claude 3 Sonnet', costPer1k: 0.003 },
-  { id: 'claude-3-haiku', name: 'Claude 3 Haiku', costPer1k: 0.00025 },
-  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', costPer1k: 0.01 },
-  { id: 'gpt-4o', name: 'GPT-4o', costPer1k: 0.005 },
+  { id: 'claude-3-opus', name: 'Gemini 2.0 Flash (via opus alias)', costPer1k: 0 },
+  { id: 'claude-3-sonnet', name: 'Gemini 2.0 Flash (via sonnet alias)', costPer1k: 0 },
+  { id: 'claude-3-haiku', name: 'Gemini 2.0 Flash Lite (via haiku alias)', costPer1k: 0 },
+  { id: 'gpt-4-turbo', name: 'Gemini 2.0 Flash (via gpt-4 alias)', costPer1k: 0 },
+  { id: 'gpt-4o', name: 'Gemini 2.0 Flash (via gpt-4o alias)', costPer1k: 0 },
 ];
 
 // Keyboard shortcuts
