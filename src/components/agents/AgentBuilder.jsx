@@ -49,6 +49,27 @@ function getFlatFiles(tree, prefix = '') {
   return result;
 }
 
+/** Topological sort — returns execution levels (nodes at same level run in parallel) */
+function topoLevels(nodes, edges) {
+  const inDeg = {};
+  nodes.forEach(n => (inDeg[n.id] = 0));
+  edges.forEach(e => (inDeg[e.to] = (inDeg[e.to] || 0) + 1));
+
+  let current = nodes.filter(n => inDeg[n.id] === 0).map(n => n.id);
+  const levels = [];
+  while (current.length) {
+    levels.push(current);
+    const next = [];
+    current.forEach(id => {
+      edges.filter(e => e.from === id).forEach(e => {
+        if (--inDeg[e.to] === 0) next.push(e.to);
+      });
+    });
+    current = next;
+  }
+  return levels;
+}
+
 export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileContent, updateFile, selectedFile }) {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [agents, setAgents] = useState([
@@ -58,6 +79,10 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
   ]);
   const [dagNodes, setDagNodes] = useState(INITIAL_NODES);
   const [dagEdges, setDagEdges] = useState(INITIAL_EDGES);
+  const [nodeStatus, setNodeStatus] = useState({});
+  const [dagRunning, setDagRunning] = useState(false);
+  const [dagInput,   setDagInput]   = useState('');
+  const [dagOutput,  setDagOutput]  = useState(null);
 
   const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
 
@@ -158,6 +183,50 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
     });
   }, []);
 
+  /** Run the DAG — execute levels in sequence, parallel within each level */
+  const runDAG = useCallback(async (userInput) => {
+    setDagRunning(true);
+    setDagOutput(null);
+    setNodeStatus({});
+    const outputs = {};
+
+    for (const level of topoLevels(dagNodes, dagEdges)) {
+      await Promise.all(level.map(async nodeId => {
+        const node = dagNodes.find(n => n.id === nodeId);
+        if (!node) return;
+
+        const upstreamText = dagEdges
+          .filter(e => e.to === nodeId)
+          .map(e => outputs[e.from] ?? '')
+          .join('\n\n---\n\n');
+
+        if (node.type === 'input')  { outputs[nodeId] = userInput; return; }
+        if (node.type === 'merge')  { outputs[nodeId] = upstreamText; return; }
+        if (node.type === 'output') { outputs[nodeId] = upstreamText; setDagOutput(upstreamText); return; }
+
+        if (node.type === 'agent') {
+          const agent = agents.find(a => a.name === node.label);
+          if (!agent) return;
+          setNodeStatus(prev => ({ ...prev, [nodeId]: 'running' }));
+          try {
+            const res = await sendMessage({
+              model: agent.model,
+              systemPrompt: `You are ${agent.name}. Tools: ${agent.tools.join(', ')}`,
+              userMessage: upstreamText || userInput,
+              traceName: `agent.${agent.name}`,
+            });
+            outputs[nodeId] = res.text;
+            setNodeStatus(prev => ({ ...prev, [nodeId]: 'completed' }));
+          } catch (e) {
+            outputs[nodeId] = `Error: ${e.message}`;
+            setNodeStatus(prev => ({ ...prev, [nodeId]: 'error' }));
+          }
+        }
+      }));
+    }
+    setDagRunning(false);
+  }, [dagNodes, dagEdges, agents]);
+
   /** Delete a DAG node by nodeId (from DAG canvas) */
   const handleDeleteDagNode = useCallback((nodeId) => {
     const node = dagNodes.find(n => n.id === nodeId);
@@ -198,9 +267,25 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
           setEdges={setDagEdges}
           onDeleteNode={handleDeleteDagNode}
           onAddMerge={handleAddMerge}
+          nodeStatuses={nodeStatus}
+          onRun={runDAG}
+          dagRunning={dagRunning}
+          dagInput={dagInput}
+          setDagInput={setDagInput}
           theme={theme}
           t={t}
         />
+
+        {dagOutput && (
+          <div className={`shrink-0 border-t ${borderClass} p-4 max-h-48 overflow-auto`}>
+            <div className={`text-xs font-semibold mb-2 ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
+              📤 DAG Output
+            </div>
+            <pre className={`text-xs whitespace-pre-wrap ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
+              {dagOutput}
+            </pre>
+          </div>
+        )}
 
         {selectedTemplate && (
           <AgentConfig
@@ -395,7 +480,10 @@ const NODE_META = {
   output: { bg: '#dc2626', label: 'OUTPUT', glyph: '■' },
 };
 
-function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAddMerge, theme, t }) {
+const STATUS_STROKE = { running: '#3b82f6', completed: '#22c55e', error: '#ef4444' };
+
+function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAddMerge,
+  nodeStatuses, onRun, dagRunning, dagInput, setDagInput, theme, t }) {
   const [mode, setMode] = useState('drag');
   const [fromNode, setFromNode] = useState(null);
   const [hoveredNode, setHoveredNode] = useState(null);
@@ -500,7 +588,31 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
             className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${isDark ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'}`}>
             + Merge
           </button>
+          <button
+            onClick={() => onRun?.(dagInput)}
+            disabled={dagRunning}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+              dagRunning ? 'bg-purple-400/50 text-white cursor-wait' : 'bg-purple-600 hover:bg-purple-500 text-white'
+            }`}
+          >
+            {dagRunning ? '⏳ Running...' : '▶ Run'}
+          </button>
         </div>
+      </div>
+
+      {/* Run input */}
+      <div className={`shrink-0 px-4 py-2 border-b flex gap-2 ${isDark ? 'bg-slate-900/80 border-slate-700/60' : 'bg-gray-50 border-gray-200'}`}>
+        <input
+          value={dagInput}
+          onChange={e => setDagInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && !dagRunning && onRun?.(dagInput)}
+          placeholder="Enter prompt and press ▶ Run..."
+          className={`flex-1 px-3 py-1.5 rounded text-sm outline-none border ${
+            isDark
+              ? 'bg-slate-800 border-slate-600 text-slate-200 placeholder-slate-500'
+              : 'bg-white border-gray-300 text-gray-800 placeholder-gray-400'
+          }`}
+        />
       </div>
 
       {/* Canvas — wrapper lets SVG fill flex space reliably */}
@@ -572,6 +684,7 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
           const deletable  = node.type === 'agent' || node.type === 'merge';
           const meta       = NODE_META[node.type] ?? NODE_META.merge;
           const nx = node.x, ny = node.y;
+          const statusStroke = nodeStatuses?.[node.id] ? STATUS_STROKE[nodeStatuses[node.id]] : null;
 
           return (
             <g
@@ -588,8 +701,8 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
               {/* Card body */}
               <rect x={nx} y={ny} width={NODE_W} height={NODE_H} rx="10"
                 fill={isDark ? '#1e293b' : '#ffffff'}
-                stroke={isFrom ? '#f59e0b' : isHovered ? meta.bg : isDark ? '#334155' : '#e2e8f0'}
-                strokeWidth={isFrom || isHovered ? 2 : 1}
+                stroke={statusStroke ?? (isFrom ? '#f59e0b' : isHovered ? meta.bg : isDark ? '#334155' : '#e2e8f0')}
+                strokeWidth={statusStroke ? 2.5 : (isFrom || isHovered ? 2 : 1)}
               />
               {/* Left accent bar */}
               <rect x={nx} y={ny} width="6" height={NODE_H}
