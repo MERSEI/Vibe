@@ -18,10 +18,14 @@
 | ✅ | **Dark/Light theme** | **РЕАЛЬНО** | Toggle, persists в store |
 | ✅ | **i18n EN/RU** | **РЕАЛЬНО** | Переключение языка |
 | ✅ | **Gemini API** | **РЕАЛЬНО** | `gemini-2.0-flash` через OpenAI-совместимый endpoint, fallback на мок |
-| ✅ | **AgentBuilder DAG** | **РЕАЛЬНО** | 7 шаблонов, drag-and-drop, реальные AI-ответы |
+| ✅ | **AgentBuilder DAG** | **РЕАЛЬНО** | 6 шаблонов, drag-and-drop, connect mode, реальные AI-ответы |
+| ✅ | **Parallel DAG Execution** | **РЕАЛЬНО** | `topoLevels()` + `Promise.all()` per level, node status (running/ok/error) |
+| ✅ | **API keys per agent** | **РЕАЛЬНО** | Provider selector (Gemini/OpenAI/Anthropic) + API key input, sync с agents/*.json |
+| ✅ | **File context (Input node)** | **РЕАЛЬНО** | Прикрепить файлы проекта как контекст через InputFilePicker |
+| ✅ | **AgentsOutputs/** | **РЕАЛЬНО** | Сохранение результатов DAG в файловое дерево с временной меткой |
 | ✅ | **NATS EventBus** | **КОД НАПИСАН** | nats.ws клиент + mock fallback, нужен NATS сервер (см. Phase 4) |
 | ✅ | **pgvector / RAG** | **КОД НАПИСАН** | Backend + frontend готовы, нужно подключить БД (см. Phase 3) |
-| ✅ | **OTEL Export** | **КОД НАПИСАН** | Dual export (InMemory + Grafana Tempo), нужен Grafana Cloud (см. Phase 5) |
+| ✅ | **OTEL Export** | **РЕАЛЬНО** | Dual export (InMemory + Grafana Tempo), Express proxy для продакшна |
 | ✅ | **Clerk Auth** | **КОД НАПИСАН** | ClerkProvider + mock fallback, нужен Clerk аккаунт (см. Phase 6) |
 
 ---
@@ -193,7 +197,7 @@ npm run dev
 ```bash
 # Установить NATS CLI:
 # https://github.com/nats-io/natscli
-
+ 
 # Опубликовать событие:
 nats pub agents.codereviewer.result '{"status":"success","duration":1234}'
 nats pub rag.search.response '{"query":"API docs","results":5}'
@@ -205,9 +209,9 @@ nats pub llm.complete '{"model":"gemini-2.0-flash","tokens":500}'
 
 ---
 
-### Phase 5: Grafana Cloud — внешний OTEL экспорт ✅ КОД НАПИСАН
+### Phase 5: Grafana Cloud — внешний OTEL экспорт ✅ РЕАЛЬНО
 
-> **Статус:** Dual-export реализован в `tracer.js`. Трейсы всегда идут в InMemory (DebugViewer работает). Если заданы `VITE_GRAFANA_ENDPOINT` + `VITE_GRAFANA_TOKEN` — дополнительно экспортируются в Grafana Tempo.
+> **Статус:** Dual-export реализован в `tracer.js`. Трейсы всегда идут в InMemory (DebugViewer работает). В продакшне (Railway) Express-backend проксирует `/api/grafana/*` → Grafana Tempo, что исключает CORS-ошибки.
 
 #### Как это работает
 
@@ -228,9 +232,10 @@ nats pub llm.complete '{"model":"gemini-2.0-flash","tokens":500}'
 5. **Добавить в `.env` фронтенда:**
 
 ```bash
-VITE_GRAFANA_ENDPOINT=https://tempo-us-central1.grafana.net
-VITE_GRAFANA_TOKEN=instanceId:apiKey
-# Формат токена: "instanceId:apiKey" (Instance ID из Tempo Details + API key)
+# Endpoint — скопировать с суффиксом /otlp:
+VITE_GRAFANA_ENDPOINT=https://otlp-gateway-prod-eu-west-2.grafana.net/otlp
+# Token — формат "instanceId:apiKey":
+VITE_GRAFANA_TOKEN=1234567:glc_eyJ...
 ```
 
 6. **Перезапустить фронтенд** — в консоли появится `[otel] Grafana Tempo exporter подключён`
@@ -291,6 +296,57 @@ npm run dev
 3. **Production:** заменить `pk_test_...` на `pk_live_...` при деплое
 
 **Env:** `VITE_CLERK_PUBLISHABLE_KEY=pk_test_...`
+
+---
+
+---
+
+### Phase 9: Parallel DAG Execution ✅ РЕАЛИЗОВАНО
+
+**Что добавлено:**
+- `topoLevels(nodes, edges)` — топологическая сортировка DAG, возвращает уровни выполнения
+- `runDAG(userInput)` — обходит уровни последовательно, каждый уровень выполняет `Promise.all()` → агенты на одном уровне работают параллельно
+- Визуализация статуса нод: синий=running, зелёный=completed, красный=error
+- Поле ввода промпта + кнопка ▶ Run в тулбаре DAG
+
+```js
+// Пример: agent1 и agent2 (оба от input) запускаются одновременно:
+// Level 0: [input] → Level 1: [agent1, agent2] → Level 2: [merge] → Level 3: [output]
+for (const level of topoLevels(dagNodes, dagEdges)) {
+  await Promise.all(level.map(nodeId => executeNode(nodeId)));
+}
+```
+
+---
+
+### Phase 10: API Keys + UI Polish ✅ РЕАЛИЗОВАНО
+
+**Что добавлено:**
+- **Стабильный размер канвы** — `shrink-0 + minHeight:520`, канва не прыгает при открытии AgentConfig
+- **Легенда** — absolute overlay поверх SVG снизу канвы с градиентом
+- **API keys per agent** — выбор провайдера (Gemini/OpenAI/Anthropic) + поле ввода API key в AgentConfig; sync с `agents/*.json`
+- **InputFilePicker** — клик на Input ноду открывает модал выбора файлов проекта; файлы включаются в контекст runDAG
+- **OutputViewer** — клик на Output ноду после выполнения открывает модал с результатами; бейдж `📤 View` на ноде
+- **OTLP proxy** — `vite.config.js` проксирует `/api/grafana/*` (dev/preview)
+
+**Файлы изменены:** `AgentBuilder.jsx`, `src/utils/constants.js` (LLM_PROVIDERS), `src/api/anthropic/client.js`, `vite.config.js`
+
+---
+
+### Phase 11: Output Save + Production Grafana Fix ✅ РЕАЛИЗОВАНО
+
+**Что добавлено:**
+- **AgentsOutputs/** — кнопка "💾 Save to AgentsOutputs/" в OutputViewer; сохраняет `output-YYYY-MM-DDTHH-MM-SS.md` в файловое дерево
+- **Удалена** инлайн-панель DAG Output под канвой; вывод только через клик на Output ноду
+- **Express Grafana proxy** — `backend/index.js` добавлен `/api/grafana/*` → Grafana OTLP proxy (продакшн Railway, Vite proxy в браузере не работает)
+
+```js
+// backend/index.js — продакшн OTLP proxy:
+app.use('/api/grafana', express.raw({ type: '*/*' }), (req, res) => {
+  const hostname = new URL(GRAFANA_ENDPOINT).hostname; // отдельно hostname, без /otlp
+  https.request({ hostname, path: req.originalUrl.replace('/api/grafana', '') }).pipe(res);
+});
+```
 
 ---
 

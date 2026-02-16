@@ -1,4 +1,4 @@
-# ⚡ Vibe IDE
+    # ⚡ Vibe IDE
 
 AI-Powered Development Environment with real-time collaboration, agent orchestration, RAG pipeline, and full observability.
 
@@ -17,8 +17,12 @@ AI-Powered Development Environment with real-time collaboration, agent orchestra
 
 ### 🤖 Epic 2: Agent SDK
 - **Gemini 2.0 Flash** — Real AI responses via Google Gemini API (free tier)
-- **Multi-Agent DAG** — Visual DAG execution flow with drag-and-drop
-- **7 Templates** — ChatBot, RAG-Search, Self-Healing CLI, Code Review, SQL Generator, API Designer, Test Generator
+- **Multi-Agent DAG** — Visual DAG canvas with drag-and-drop nodes and connect mode
+- **Parallel Execution** — Topological sort + `Promise.all()` per level; true parallel agent runs with live status (blue/green/red)
+- **Per-Agent API Keys** — Provider selector (Gemini / OpenAI / Anthropic) + API key input per agent; bidirectional sync with `agents/*.json` files
+- **File Context** — Click Input node to attach project files as LLM context
+- **Output Viewer** — Click Output node after run to view results; save to `AgentsOutputs/` folder with timestamp
+- **6 Templates** — ChatBot, RAG-Search, Self-Healing CLI, Code Review, SQL Generator, API Designer
 
 ### 🔍 Epic 3: RAG Pipeline
 - **pgvector + Express Backend** — Real PostgreSQL + pgvector backend with hybrid search. Falls back to mock data automatically if DB is not running
@@ -43,6 +47,10 @@ npm install
 
 # Real AI responses — get free key at https://aistudio.google.com/app/apikey
 echo "VITE_GEMINI_API_KEY=AIza..." >> .env
+
+# Grafana Tempo tracing (optional):
+# VITE_GRAFANA_ENDPOINT=https://otlp-gateway-prod-eu-west-2.grafana.net/otlp
+# VITE_GRAFANA_TOKEN=instanceId:apiKey
 
 npm run dev
 # Open in two browser tabs — CRDT text sync works out of the box
@@ -113,7 +121,7 @@ backend/
 | AI Agents | Gemini 2.0 Flash (free tier) | ✅ Live |
 | Vector DB | pgvector + Express backend | ✅ Ready (needs DB) |
 | Event Bus | NATS WebSocket (nats.ws) + mock fallback | ✅ Ready (needs NATS) |
-| Observability | OTLP → Grafana Tempo + in-memory | ✅ Ready (needs Grafana) |
+| Observability | OTLP → Grafana Tempo via Express proxy + in-memory | ✅ Live |
 | Auth | Clerk (@clerk/clerk-react) + mock fallback | ✅ Ready (needs Clerk key) |
 
 ## 📋 Roadmap
