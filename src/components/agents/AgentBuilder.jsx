@@ -131,6 +131,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
             }
             createFile={createFile}
             selectFile={selectFile}
+            selectedFile={selectedFile}
             files={files}
             getFileContent={getFileContent}
             updateFile={updateFile}
@@ -521,7 +522,7 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, them
 // ---------------------------------------------------------------------------
 // AgentConfig
 // ---------------------------------------------------------------------------
-function AgentConfig({ template, onClose, onAgentStatusChange, createFile, selectFile, files, getFileContent, updateFile, theme }) {
+function AgentConfig({ template, onClose, onAgentStatusChange, createFile, selectFile, selectedFile, files, getFileContent, updateFile, theme }) {
   const [config, setConfig] = useState({
     name: template.name,
     model: template.model,
@@ -585,11 +586,18 @@ function AgentConfig({ template, onClose, onAgentStatusChange, createFile, selec
 
   const handleOpenInEditor = useCallback(() => {
     if (!output) return;
-    const safeName = config.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
-    const fileName = `${safeName}-output.md`;
-    createFile?.('agents', fileName, output);
-    selectFile?.(`agents/${fileName}`);
-  }, [output, config.name, createFile, selectFile]);
+    if (selectedFile && updateFile) {
+      // Overwrite the currently open IDE file
+      updateFile(selectedFile, output);
+      selectFile?.(selectedFile);
+    } else {
+      // No file open — create a new one as fallback
+      const safeName = config.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      const fileName = `${safeName}-output.md`;
+      createFile?.('agents', fileName, output);
+      selectFile?.(`agents/${fileName}`);
+    }
+  }, [output, selectedFile, config.name, updateFile, createFile, selectFile]);
 
   const handleWriteToFile = useCallback(() => {
     if (!writeToPath || !output) return;
@@ -747,12 +755,13 @@ function AgentConfig({ template, onClose, onAgentStatusChange, createFile, selec
             <span>{error ? '❌ Error' : '✅ Response'}</span>
             {output && !error && (
               <div className="flex items-center gap-2 flex-wrap">
-                {/* Open as new file */}
+                {/* Write to current IDE file (or create new if none open) */}
                 <button
                   onClick={handleOpenInEditor}
                   className="px-2 py-0.5 rounded text-xs bg-purple-600/20 text-purple-400 hover:bg-purple-600/40 transition-colors"
+                  title={selectedFile ? `Overwrite ${selectedFile}` : 'Create agents/NAME-output.md'}
                 >
-                  📝 Open in Editor
+                  {selectedFile ? `✏️ Write to ${selectedFile.split('/').pop()}` : '📝 Open in Editor'}
                 </button>
                 {/* Write to existing file */}
                 {flatFiles.length > 0 && (
