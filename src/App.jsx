@@ -89,6 +89,9 @@ function VibeIDEInner() {
     updateFile,
     getFileContent,
     getFileLanguage,
+    createFile,
+    deleteFile,
+    renameFile,
   } = useFileSystem();
 
   // Local UI state
@@ -128,6 +131,9 @@ function VibeIDEInner() {
             onUpdateFile={updateFile}
             getFileContent={getFileContent}
             getFileLanguage={getFileLanguage}
+            createFile={createFile}
+            deleteFile={deleteFile}
+            renameFile={renameFile}
             collaborators={collaborators}
             showEventBus={showEventBus}
             theme={theme}

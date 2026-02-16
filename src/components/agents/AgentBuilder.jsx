@@ -14,6 +14,23 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { AGENT_TEMPLATES, LLM_MODELS, CURSOR_COLORS } from '../../utils/constants';
 import { sendMessage } from '../../api/anthropic/client';
+import { useFileStore } from '../../stores/index';
+
+const INITIAL_NODES = [
+  { id: 'input', x: 50, y: 100, label: 'Input', type: 'input' },
+  { id: 'agent1', x: 200, y: 50, label: 'CodeReviewer', type: 'agent' },
+  { id: 'agent2', x: 200, y: 150, label: 'DocWriter', type: 'agent' },
+  { id: 'merge', x: 350, y: 100, label: 'Merge', type: 'merge' },
+  { id: 'output', x: 500, y: 100, label: 'Output', type: 'output' },
+];
+
+const INITIAL_EDGES = [
+  { from: 'input', to: 'agent1' },
+  { from: 'input', to: 'agent2' },
+  { from: 'agent1', to: 'merge' },
+  { from: 'agent2', to: 'merge' },
+  { from: 'merge', to: 'output' },
+];
 
 export function AgentBuilder({ theme, t }) {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
@@ -22,8 +39,24 @@ export function AgentBuilder({ theme, t }) {
     { id: 2, name: 'DocWriter', model: 'claude-3-sonnet', status: 'running', tools: ['markdown_gen'] },
     { id: 3, name: 'TestGenerator', model: 'claude-3-haiku', status: 'completed', tools: ['test_runner'] },
   ]);
+  const [dagNodes, setDagNodes] = useState(INITIAL_NODES);
 
   const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
+
+  const handleAddAgent = useCallback((name, model) => {
+    const id = Date.now();
+    setAgents(prev => [...prev, { id, name, model, status: 'idle', tools: [] }]);
+    setDagNodes(prev => [
+      ...prev,
+      {
+        id: `agent-${id}`,
+        x: 120 + (prev.filter(n => n.type === 'agent').length * 30) % 200,
+        y: 60 + (prev.filter(n => n.type === 'agent').length * 25) % 120,
+        label: name,
+        type: 'agent',
+      },
+    ]);
+  }, []);
 
   return (
     <div className="h-full flex">
@@ -41,6 +74,7 @@ export function AgentBuilder({ theme, t }) {
         {/* Active Agents */}
         <AgentList
           agents={agents}
+          onAddAgent={handleAddAgent}
           theme={theme}
           t={t}
         />
@@ -48,7 +82,7 @@ export function AgentBuilder({ theme, t }) {
 
       {/* Right Panel - DAG Visualization with drag-and-drop */}
       <div className="flex-1 flex flex-col">
-        <DAGVisualization theme={theme} t={t} />
+        <DAGVisualization nodes={dagNodes} setNodes={setDagNodes} theme={theme} t={t} />
 
         {/* Agent Details / Config */}
         {selectedTemplate && (
@@ -101,12 +135,29 @@ function TemplateGallery({ templates, selectedTemplate, onSelect, theme, t }) {
   );
 }
 
-function AgentList({ agents, theme, t }) {
+function AgentList({ agents, onAddAgent, theme, t }) {
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newModel, setNewModel] = useState(LLM_MODELS[0]?.id || 'claude-3-opus');
+
   const statusColors = {
     idle: 'bg-slate-500/20 text-slate-400',
     running: 'bg-blue-500/20 text-blue-400',
     completed: 'bg-green-500/20 text-green-400',
     error: 'bg-red-500/20 text-red-400',
+  };
+
+  const inputClass = `w-full px-2 py-1.5 rounded border text-sm outline-none ${
+    theme === 'dark'
+      ? 'bg-slate-700 border-slate-600 text-slate-200 focus:border-purple-500'
+      : 'bg-white border-gray-300 text-gray-800 focus:border-purple-500'
+  }`;
+
+  const handleCommit = () => {
+    if (!newName.trim()) return;
+    onAddAgent?.(newName.trim(), newModel);
+    setNewName('');
+    setShowAddForm(false);
   };
 
   return (
@@ -139,33 +190,63 @@ function AgentList({ agents, theme, t }) {
               </span>
             </div>
             <div className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>
-              Model: {agent.model} • Tools: {agent.tools.join(', ')}
+              Model: {agent.model}{agent.tools.length > 0 ? ` • Tools: ${agent.tools.join(', ')}` : ''}
             </div>
           </div>
         ))}
       </div>
+
+      {/* Add Agent form */}
+      {showAddForm ? (
+        <div className={`mt-3 p-3 rounded-lg border ${theme === 'dark' ? 'border-slate-600 bg-slate-800/50' : 'border-gray-200 bg-gray-50'}`}>
+          <div className="space-y-2">
+            <input
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCommit(); if (e.key === 'Escape') setShowAddForm(false); }}
+              placeholder="Agent name"
+              className={inputClass}
+            />
+            <select value={newModel} onChange={(e) => setNewModel(e.target.value)} className={inputClass}>
+              {LLM_MODELS.map(m => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            <div className="flex gap-2">
+              <button
+                onClick={handleCommit}
+                disabled={!newName.trim()}
+                className="flex-1 py-1.5 rounded text-xs bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white"
+              >
+                Add
+              </button>
+              <button
+                onClick={() => setShowAddForm(false)}
+                className={`flex-1 py-1.5 rounded text-xs ${theme === 'dark' ? 'bg-slate-700 hover:bg-slate-600 text-slate-300' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'}`}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowAddForm(true)}
+          className={`mt-3 w-full py-2 rounded-lg text-xs border-dashed border ${
+            theme === 'dark'
+              ? 'border-slate-600 text-slate-400 hover:border-purple-500 hover:text-purple-400'
+              : 'border-gray-300 text-gray-500 hover:border-purple-400 hover:text-purple-500'
+          } transition-colors`}
+        >
+          + Add Agent
+        </button>
+      )}
     </div>
   );
 }
 
-const INITIAL_NODES = [
-  { id: 'input', x: 50, y: 100, label: 'Input', type: 'input' },
-  { id: 'agent1', x: 200, y: 50, label: 'CodeReviewer', type: 'agent' },
-  { id: 'agent2', x: 200, y: 150, label: 'DocWriter', type: 'agent' },
-  { id: 'merge', x: 350, y: 100, label: 'Merge', type: 'merge' },
-  { id: 'output', x: 500, y: 100, label: 'Output', type: 'output' },
-];
-
-const INITIAL_EDGES = [
-  { from: 'input', to: 'agent1' },
-  { from: 'input', to: 'agent2' },
-  { from: 'agent1', to: 'merge' },
-  { from: 'agent2', to: 'merge' },
-  { from: 'merge', to: 'output' },
-];
-
-function DAGVisualization({ theme, t }) {
-  const [nodes, setNodes] = useState(INITIAL_NODES);
+function DAGVisualization({ nodes, setNodes, theme, t }) {
   const [edges] = useState(INITIAL_EDGES);
   const [draggingNode, setDraggingNode] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -308,6 +389,9 @@ function DAGVisualization({ theme, t }) {
 }
 
 function AgentConfig({ template, onClose, onAgentStatusChange, theme }) {
+  const createFile = useFileStore(s => s.createFile);
+  const selectFile = useFileStore(s => s.selectFile);
+
   const [config, setConfig] = useState({
     name: template.name,
     model: template.model,
@@ -318,6 +402,14 @@ function AgentConfig({ template, onClose, onAgentStatusChange, theme }) {
   const [running, setRunning] = useState(false);
   const [output, setOutput] = useState('');
   const [error, setError] = useState(null);
+
+  const handleOpenInEditor = useCallback(() => {
+    if (!output) return;
+    const safeName = config.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+    const fileName = `${safeName}-output.md`;
+    createFile('agents', fileName, output);
+    selectFile(`agents/${fileName}`);
+  }, [output, config.name, createFile, selectFile]);
 
   const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
   const inputClass = theme === 'dark'
@@ -461,8 +553,16 @@ function AgentConfig({ template, onClose, onAgentStatusChange, theme }) {
             ? 'bg-red-500/10 text-red-400'
             : theme === 'dark' ? 'bg-slate-800 text-slate-200' : 'bg-white text-gray-800 border border-gray-200'
         }`}>
-          <div className={`text-xs font-semibold mb-1 ${error ? 'text-red-400' : theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>
-            {error ? '❌ Error' : '✅ Response'}
+          <div className={`text-xs font-semibold mb-1 flex items-center justify-between ${error ? 'text-red-400' : theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>
+            <span>{error ? '❌ Error' : '✅ Response'}</span>
+            {output && !error && (
+              <button
+                onClick={handleOpenInEditor}
+                className="px-2 py-0.5 rounded text-xs bg-purple-600/20 text-purple-400 hover:bg-purple-600/40 transition-colors"
+              >
+                📝 Open in Editor
+              </button>
+            )}
           </div>
           <pre className="whitespace-pre-wrap font-sans leading-relaxed">{error || output}</pre>
         </div>

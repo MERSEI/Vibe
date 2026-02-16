@@ -617,6 +617,25 @@ export const useFileStore = create((set, get) => ({
           : s.selectedFile;
       return { files: newFiles, openTabs: newTabs, selectedFile: newSelected };
     }),
+
+  renameFile: (oldPath, newName) =>
+    set((s) => {
+      const newFiles = JSON.parse(JSON.stringify(s.files));
+      const parts = oldPath.split('/');
+      let current = newFiles;
+      for (let i = 0; i < parts.length - 1; i++) {
+        current = current[parts[i]].children;
+      }
+      const oldName = parts[parts.length - 1];
+      const fileData = current[oldName];
+      if (!fileData) return s;
+      delete current[oldName];
+      current[newName] = { ...fileData };
+      const newPath = [...parts.slice(0, -1), newName].join('/');
+      const newTabs = s.openTabs.map((t) => (t === oldPath ? newPath : t));
+      const newSelected = s.selectedFile === oldPath ? newPath : s.selectedFile;
+      return { files: newFiles, openTabs: newTabs, selectedFile: newSelected };
+    }),
 }));
 
 // ============= Collaborators Store =============

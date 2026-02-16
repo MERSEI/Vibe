@@ -20,6 +20,9 @@ export function EditorPanel({
   onUpdateFile,
   getFileContent,
   getFileLanguage,
+  createFile,
+  deleteFile,
+  renameFile,
   collaborators,
   showEventBus,
   theme,
@@ -29,6 +32,13 @@ export function EditorPanel({
   const content = getFileContent(selectedFile);
   const language = getFileLanguage(selectedFile);
 
+  const handleNewFile = (folderPath, fileName) => {
+    if (!fileName?.trim()) return;
+    createFile?.(folderPath, fileName, '');
+    const newPath = folderPath ? `${folderPath}/${fileName}` : fileName;
+    onSelectFile?.(newPath);
+  };
+
   return (
     <>
       {/* File Tree */}
@@ -37,6 +47,9 @@ export function EditorPanel({
           files={files}
           selectedFile={selectedFile}
           onSelect={onSelectFile}
+          onNewFile={handleNewFile}
+          onDelete={deleteFile}
+          onRename={renameFile}
           theme={theme}
           t={t}
         />

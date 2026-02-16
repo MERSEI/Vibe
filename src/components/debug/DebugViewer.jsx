@@ -11,6 +11,10 @@
  */
 
 import React, { useState, useMemo } from 'react';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  LineChart, Line, AreaChart, Area,
+} from 'recharts';
 import { CURSOR_COLORS } from '../../utils/constants';
 import { useTraceStore } from '../../api/telemetry/tracer';
 
@@ -43,8 +47,8 @@ export function DebugViewer({ theme, t }) {
       {/* Stats Bar */}
       <StatsBar stats={stats} theme={theme} t={t} />
 
-      {/* Token Usage Chart */}
-      <TokenUsageChart data={tokenUsageHistory} theme={theme} t={t} />
+      {/* Token Usage + Latency + Cost Charts */}
+      <ChartsSection tokenHistory={tokenUsageHistory} traces={traces} theme={theme} t={t} />
 
       {/* Filter Tabs */}
       <FilterTabs filter={filter} setFilter={setFilter} stats={stats} theme={theme} />
@@ -127,67 +131,97 @@ function StatsBar({ stats, theme, t }) {
   );
 }
 
-function TokenUsageChart({ data, theme, t }) {
-  const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
+const CHART_TOOLTIP_STYLE = { fontSize: 11, padding: '4px 8px' };
 
-  if (data.length === 0) {
+function ChartsSection({ tokenHistory, traces, theme, t }) {
+  const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
+  const axisColor = theme === 'dark' ? '#64748b' : '#9ca3af';
+  const gridColor = theme === 'dark' ? '#1e293b' : '#f3f4f6';
+
+  const latencyData = useMemo(
+    () => traces.slice(-20).map((tr) => ({
+      time: tr.timestamp.slice(0, 8),
+      ms: tr.duration,
+      name: tr.name.slice(0, 24),
+    })),
+    [traces],
+  );
+
+  const costData = useMemo(
+    () => tokenHistory.map((h) => ({ time: h.time.slice(0, 5), cost: h.cost })),
+    [tokenHistory],
+  );
+
+  if (tokenHistory.length === 0 && traces.length === 0) {
     return (
       <div className={`p-4 border-b ${borderClass}`}>
-        <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
+        <h3 className={`text-sm font-semibold mb-2 flex items-center gap-2 ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
           <span>📈</span> {t.tokenUsage}
         </h3>
         <p className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>
-          Token usage will appear here after API calls.
+          Charts will appear here after API calls.
         </p>
       </div>
     );
   }
 
-  const maxTokens = Math.max(...data.map((d) => d.input + d.output), 1);
-
   return (
-    <div className={`p-4 border-b ${borderClass}`}>
-      <h3 className={`text-sm font-semibold mb-3 flex items-center gap-2 ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
-        <span>📈</span> {t.tokenUsage}
-      </h3>
-
-      <div className="flex items-end gap-2 h-20">
-        {data.map((d, i) => {
-          const inputHeight = (d.input / maxTokens) * 100;
-          const outputHeight = (d.output / maxTokens) * 100;
-
-          return (
-            <div key={i} className="flex-1 flex flex-col items-center gap-1">
-              <div className="flex-1 w-full flex items-end gap-0.5">
-                <div
-                  className="flex-1 bg-purple-500 rounded-t"
-                  style={{ height: `${inputHeight}%` }}
-                  title={`Input: ${d.input}`}
-                />
-                <div
-                  className="flex-1 bg-pink-500 rounded-t"
-                  style={{ height: `${outputHeight}%` }}
-                  title={`Output: ${d.output}`}
-                />
-              </div>
-              <span className={`text-xs ${theme === 'dark' ? 'text-slate-500' : 'text-gray-400'}`}>
-                {d.time.slice(0, 5)}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="flex justify-center gap-4 mt-2 text-xs">
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-purple-500" />
-          <span className={theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}>Input</span>
+    <div className={`p-4 border-b ${borderClass} space-y-4`}>
+      {/* Token Usage Bar Chart */}
+      {tokenHistory.length > 0 && (
+        <div>
+          <div className={`text-xs font-semibold mb-1 flex items-center gap-2 ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
+            <span>🔤</span> {t.tokenUsage}
+            <span className="flex gap-3 ml-auto font-normal">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-purple-500 inline-block" />Input</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-pink-500 inline-block" />Output</span>
+            </span>
+          </div>
+          <ResponsiveContainer width="100%" height={80}>
+            <BarChart data={tokenHistory} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
+              <XAxis dataKey="time" tick={{ fontSize: 9, fill: axisColor }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 9, fill: axisColor }} tickLine={false} axisLine={false} width={32} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v, n) => [v, n === 'input' ? 'Input tokens' : 'Output tokens']} />
+              <Bar dataKey="input" fill="#a855f7" stackId="a" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="output" fill="#ec4899" stackId="a" radius={[2, 2, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
-        <div className="flex items-center gap-1">
-          <div className="w-3 h-3 rounded bg-pink-500" />
-          <span className={theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}>Output</span>
+      )}
+
+      {/* Latency Line Chart */}
+      {latencyData.length > 1 && (
+        <div>
+          <div className={`text-xs font-semibold mb-1 flex items-center gap-2 ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
+            <span>⏱️</span> Latency (ms)
+          </div>
+          <ResponsiveContainer width="100%" height={60}>
+            <LineChart data={latencyData} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
+              <XAxis dataKey="time" tick={{ fontSize: 9, fill: axisColor }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 9, fill: axisColor }} tickLine={false} axisLine={false} width={32} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v) => [`${v}ms`, 'Duration']} labelFormatter={(_, p) => p[0]?.payload?.name || ''} />
+              <Line type="monotone" dataKey="ms" stroke="#6366f1" dot={false} strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
-      </div>
+      )}
+
+      {/* Cost Area Chart */}
+      {costData.length > 1 && (
+        <div>
+          <div className={`text-xs font-semibold mb-1 flex items-center gap-2 ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
+            <span>💰</span> Cost (USD)
+          </div>
+          <ResponsiveContainer width="100%" height={48}>
+            <AreaChart data={costData} margin={{ top: 2, right: 4, left: -20, bottom: 0 }}>
+              <XAxis dataKey="time" tick={{ fontSize: 9, fill: axisColor }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 9, fill: axisColor }} tickLine={false} axisLine={false} width={40} tickFormatter={(v) => `$${v.toFixed(3)}`} />
+              <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(v) => [`$${v.toFixed(4)}`, 'Cost']} />
+              <Area type="monotone" dataKey="cost" stroke="#f59e0b" fill="#f59e0b33" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
     </div>
   );
 }

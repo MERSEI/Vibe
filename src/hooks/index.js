@@ -172,6 +172,27 @@ export function useFileSystem() {
     closeTab(path);
   }, [closeTab]);
 
+  const renameFile = useCallback((oldPath, newName) => {
+    setFiles(prev => {
+      const newFiles = JSON.parse(JSON.stringify(prev));
+      const parts = oldPath.split('/');
+      let current = newFiles;
+      for (let i = 0; i < parts.length - 1; i++) {
+        current = current[parts[i]].children;
+      }
+      const oldName = parts[parts.length - 1];
+      const fileData = current[oldName];
+      if (!fileData) return prev;
+      delete current[oldName];
+      current[newName] = { ...fileData };
+      return newFiles;
+    });
+    // Update selected/tabs in store
+    const newPath = [...oldPath.split('/').slice(0, -1), newName].join('/');
+    setSelectedFile(prev => (prev === oldPath ? newPath : prev));
+    setOpenTabs(prev => prev.map(t => (t === oldPath ? newPath : t)));
+  }, []);
+
   return {
     files,
     selectedFile,
@@ -183,6 +204,7 @@ export function useFileSystem() {
     getFileLanguage,
     createFile,
     deleteFile,
+    renameFile,
   };
 }
 
