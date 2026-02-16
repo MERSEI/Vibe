@@ -14,8 +14,6 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { AGENT_TEMPLATES, LLM_MODELS, CURSOR_COLORS } from '../../utils/constants';
 import { sendMessage } from '../../api/anthropic/client';
-import { useFileStore } from '../../stores/index';
-
 const INITIAL_NODES = [
   { id: 'input', x: 50, y: 100, label: 'Input', type: 'input' },
   { id: 'agent1', x: 200, y: 50, label: 'CodeReviewer', type: 'agent' },
@@ -32,7 +30,7 @@ const INITIAL_EDGES = [
   { from: 'merge', to: 'output' },
 ];
 
-export function AgentBuilder({ theme, t }) {
+export function AgentBuilder({ theme, t, createFile, selectFile }) {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [agents, setAgents] = useState([
     { id: 1, name: 'CodeReviewer', model: 'claude-3-opus', status: 'idle', tools: ['code_analysis', 'git_diff'] },
@@ -92,6 +90,8 @@ export function AgentBuilder({ theme, t }) {
             onAgentStatusChange={(name, status) =>
               setAgents((prev) => prev.map((a) => a.name === name ? { ...a, status } : a))
             }
+            createFile={createFile}
+            selectFile={selectFile}
             theme={theme}
           />
         )}
@@ -388,9 +388,7 @@ function DAGVisualization({ nodes, setNodes, theme, t }) {
   );
 }
 
-function AgentConfig({ template, onClose, onAgentStatusChange, theme }) {
-  const createFile = useFileStore(s => s.createFile);
-  const selectFile = useFileStore(s => s.selectFile);
+function AgentConfig({ template, onClose, onAgentStatusChange, createFile, selectFile, theme }) {
 
   const [config, setConfig] = useState({
     name: template.name,

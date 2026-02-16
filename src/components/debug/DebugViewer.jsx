@@ -140,7 +140,7 @@ function ChartsSection({ tokenHistory, traces, theme, t }) {
 
   const latencyData = useMemo(
     () => traces.slice(-20).map((tr) => ({
-      time: tr.timestamp.slice(0, 8),
+      time: (tr.timestamp || '').slice(0, 8),
       ms: tr.duration,
       name: tr.name.slice(0, 24),
     })),

@@ -143,7 +143,12 @@ function VibeIDEInner() {
       case 'agents':
         return (
           <Suspense fallback={<PanelLoader />}>
-            <AgentBuilder theme={theme} t={t} />
+            <AgentBuilder
+              theme={theme}
+              t={t}
+              createFile={createFile}
+              selectFile={selectFile}
+            />
           </Suspense>
         );
       case 'rag':
