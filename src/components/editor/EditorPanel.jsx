@@ -51,6 +51,17 @@ export function EditorPanel({
           : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
     }`;
 
+  const handleDownload = () => {
+    if (!selectedFile || !content) return;
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = selectedFile.split('/').pop();
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <>
       {/* File Tree */}
@@ -89,6 +100,13 @@ export function EditorPanel({
               title="Toggle preview"
             >
               👁
+            </button>
+            <button
+              onClick={handleDownload}
+              className={toggleBtnClass(false)}
+              title="Download file"
+            >
+              ⬇
             </button>
           </div>
           <div className="flex-1 min-w-0 overflow-hidden">
