@@ -148,6 +148,10 @@ function VibeIDEInner() {
               t={t}
               createFile={createFile}
               selectFile={selectFile}
+              files={files}
+              getFileContent={getFileContent}
+              updateFile={updateFile}
+              selectedFile={selectedFile}
             />
           </Suspense>
         );
