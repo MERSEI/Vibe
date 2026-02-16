@@ -80,6 +80,20 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
     setDagEdges(prev => prev.filter(e => !nodeIds.includes(e.from) && !nodeIds.includes(e.to)));
   }, [dagNodes]);
 
+  /** Add a new Merge node to the DAG */
+  const handleAddMerge = useCallback(() => {
+    setDagNodes(prev => {
+      const existingMerges = prev.filter(n => n.type === 'merge').length;
+      return [...prev, {
+        id: `merge-${Date.now()}`,
+        x: 250 + (existingMerges * 30) % 150,
+        y: 100 + (existingMerges * 20) % 80,
+        label: `Merge${existingMerges > 0 ? existingMerges + 1 : ''}`,
+        type: 'merge',
+      }];
+    });
+  }, []);
+
   /** Delete a DAG node by nodeId (from DAG canvas) */
   const handleDeleteDagNode = useCallback((nodeId) => {
     const node = dagNodes.find(n => n.id === nodeId);
@@ -118,6 +132,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
           edges={dagEdges}
           setEdges={setDagEdges}
           onDeleteNode={handleDeleteDagNode}
+          onAddMerge={handleAddMerge}
           theme={theme}
           t={t}
         />
@@ -305,7 +320,7 @@ function AgentList({ agents, onAddAgent, onDeleteAgent, theme, t }) {
 // ---------------------------------------------------------------------------
 // DAGVisualization
 // ---------------------------------------------------------------------------
-function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, theme, t }) {
+function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAddMerge, theme, t }) {
   const [mode, setMode] = useState('drag'); // 'drag' | 'connect'
   const [fromNode, setFromNode] = useState(null);
   const [hoveredNode, setHoveredNode] = useState(null);
@@ -382,17 +397,6 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, them
 
   const switchMode = (m) => { setMode(m); setFromNode(null); setDraggingNode(null); };
 
-  const handleAddMerge = useCallback(() => {
-    const existingMerges = nodes.filter(n => n.type === 'merge').length;
-    setNodes(prev => [...prev, {
-      id: `merge-${Date.now()}`,
-      x: 250 + (existingMerges * 30) % 150,
-      y: 100 + (existingMerges * 20) % 80,
-      label: `Merge${existingMerges > 0 ? existingMerges + 1 : ''}`,
-      type: 'merge',
-    }]);
-  }, [nodes, setNodes]);
-
   const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
   const btnBase = (active) => `px-2 py-1 rounded text-xs ${active
     ? 'bg-purple-600 text-white'
@@ -409,7 +413,7 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, them
         <div className="flex gap-1">
           <button onClick={() => switchMode('drag')}    className={btnBase(mode === 'drag')}>✥ Drag</button>
           <button onClick={() => switchMode('connect')} className={btnBase(mode === 'connect')}>🔗 Connect</button>
-          <button onClick={handleAddMerge} className={`px-2 py-1 rounded text-xs bg-slate-600 hover:bg-slate-500 text-white`}>+ Merge</button>
+          <button onClick={onAddMerge} className={`px-2 py-1 rounded text-xs bg-slate-600 hover:bg-slate-500 text-white`}>+ Merge</button>
         </div>
       </div>
 
