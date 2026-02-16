@@ -295,17 +295,6 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
           t={t}
         />
 
-        {dagOutput && (
-          <div className={`shrink-0 border-t ${borderClass} p-4 max-h-48 overflow-auto`}>
-            <div className={`text-xs font-semibold mb-2 ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
-              📤 DAG Output
-            </div>
-            <pre className={`text-xs whitespace-pre-wrap ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
-              {dagOutput}
-            </pre>
-          </div>
-        )}
-
         {selectedTemplate && (
           <AgentConfig
             template={selectedTemplate}
@@ -342,6 +331,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
           <OutputViewer
             output={dagOutput}
             onClose={() => setShowOutputPanel(false)}
+            createFile={createFile}
             theme={theme}
           />
         )}
@@ -1209,8 +1199,17 @@ function InputFilePicker({ files, selected, onSelect, onClose, theme }) {
 // ---------------------------------------------------------------------------
 // OutputViewer — modal to view DAG execution results
 // ---------------------------------------------------------------------------
-function OutputViewer({ output, onClose, theme }) {
+function OutputViewer({ output, onClose, createFile, theme }) {
   const isDark = theme === 'dark';
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    if (!createFile || !output) return;
+    const ts = new Date().toISOString().slice(0, 19).replace(/[T:]/g, '-');
+    createFile('AgentsOutputs', `output-${ts}.md`, output);
+    setSaved(true);
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className={`w-[640px] max-h-[80vh] flex flex-col rounded-xl shadow-2xl border ${
@@ -1229,7 +1228,22 @@ function OutputViewer({ output, onClose, theme }) {
             {output}
           </pre>
         </div>
-        <div className={`px-4 py-3 border-t flex justify-end ${isDark ? 'border-slate-700' : 'border-gray-200'}`}>
+        <div className={`px-4 py-3 border-t flex justify-end gap-2 ${isDark ? 'border-slate-700' : 'border-gray-200'}`}>
+          {createFile && (
+            <button
+              onClick={handleSave}
+              disabled={saved}
+              className={`px-3 py-1.5 rounded text-xs transition-colors ${
+                saved
+                  ? 'bg-green-600/20 text-green-400 cursor-default'
+                  : isDark
+                    ? 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                    : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+              }`}
+            >
+              {saved ? '✓ Saved' : '💾 Save to AgentsOutputs/'}
+            </button>
+          )}
           <button onClick={onClose} className="px-3 py-1.5 rounded text-xs bg-purple-600 hover:bg-purple-500 text-white">Close</button>
         </div>
       </div>

@@ -38,7 +38,8 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/openai/, ''),
       },
       '/api/grafana': {
-        target: process.env.VITE_GRAFANA_ENDPOINT || 'https://otlp-gateway-prod-eu-west-2.grafana.net',
+        target: (process.env.VITE_GRAFANA_ENDPOINT || 'https://otlp-gateway-prod-eu-west-2.grafana.net')
+          .replace(/\/otlp\/?$/, ''),
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/grafana/, ''),
       },
@@ -66,7 +67,8 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/openai/, ''),
       },
       '/api/grafana': {
-        target: process.env.VITE_GRAFANA_ENDPOINT || 'https://otlp-gateway-prod-eu-west-2.grafana.net',
+        target: (process.env.VITE_GRAFANA_ENDPOINT || 'https://otlp-gateway-prod-eu-west-2.grafana.net')
+          .replace(/\/otlp\/?$/, ''),
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/grafana/, ''),
       },
