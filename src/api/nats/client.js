@@ -22,6 +22,21 @@ const CHANNEL_SUBJECTS = {
 
 let _natsConnection = null;
 let _connectionStatus = 'disconnected'; // 'connected' | 'disconnected' | 'mock'
+let _demoPublisherCleanup = null;
+
+/**
+ * Demo publisher — publishes mock events INTO the real NATS so subscribers see them.
+ * Runs automatically when connected; simulates activity for the demo environment.
+ */
+function startDemoPublisher(nc, codec, intervalMs = 1500) {
+  const interval = setInterval(() => {
+    try {
+      const event = generateMockEvent();
+      nc.publish(event.type, codec.encode({ ...event.data, _demo: true }));
+    } catch { /* ignore publish errors */ }
+  }, intervalMs);
+  return () => clearInterval(interval);
+}
 
 /**
  * Получить текущий статус подключения
@@ -47,15 +62,20 @@ async function tryConnect() {
       reconnectTimeWait: 2000,
     });
 
+    const codec = JSONCodec();
     _natsConnection = nc;
     _connectionStatus = 'connected';
+
+    // Start demo publisher so events flow through real NATS in demo environment
+    _demoPublisherCleanup = startDemoPublisher(nc, codec);
 
     nc.closed().then(() => {
       _connectionStatus = 'disconnected';
       _natsConnection = null;
+      if (_demoPublisherCleanup) { _demoPublisherCleanup(); _demoPublisherCleanup = null; }
     });
 
-    return { nc, codec: JSONCodec() };
+    return { nc, codec };
   } catch (err) {
     console.warn('[nats] Подключение не удалось, используем мок-события:', err.message);
     _connectionStatus = 'mock';
@@ -152,6 +172,7 @@ export async function publishEvent(subject, data) {
  * Закрыть NATS подключение.
  */
 export async function disconnect() {
+  if (_demoPublisherCleanup) { _demoPublisherCleanup(); _demoPublisherCleanup = null; }
   if (_natsConnection) {
     await _natsConnection.drain();
     _natsConnection = null;
