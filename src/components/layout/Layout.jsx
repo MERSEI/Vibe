@@ -49,18 +49,16 @@ export function Layout({
           showEventBus={showEventBus}
         />
 
-        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-          <main className="flex-1 flex overflow-hidden min-h-0">
-            {children}
-          </main>
-
-          {showEventBus && (
-            <div className={`shrink-0 border-t ${theme === 'dark' ? 'border-slate-700' : 'border-gray-200'}`}>
-              <EventBusInspector theme={theme} t={t} />
-            </div>
-          )}
-        </div>
+        <main className="flex-1 flex overflow-hidden min-h-0">
+          {children}
+        </main>
       </div>
+
+      {showEventBus && (
+        <div className={`shrink-0 border-t ${theme === 'dark' ? 'border-slate-700' : 'border-gray-200'}`}>
+          <EventBusInspector theme={theme} t={t} />
+        </div>
+      )}
 
       <StatusBar
         theme={theme}
