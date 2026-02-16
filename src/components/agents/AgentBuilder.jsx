@@ -12,12 +12,18 @@ import React, { useState, useCallback, useRef, useMemo } from 'react';
 import { AGENT_TEMPLATES, LLM_MODELS, CURSOR_COLORS } from '../../utils/constants';
 import { sendMessage } from '../../api/anthropic/client';
 
+// DAG canvas dimensions
+const NODE_W = 164;
+const NODE_H = 62;
+const VB_W   = 920;
+const VB_H   = 580;
+
 const INITIAL_NODES = [
-  { id: 'input',  x: 50,  y: 100, label: 'Input',        type: 'input'  },
-  { id: 'agent1', x: 200, y: 50,  label: 'CodeReviewer', type: 'agent'  },
-  { id: 'agent2', x: 200, y: 150, label: 'DocWriter',    type: 'agent'  },
-  { id: 'merge',  x: 350, y: 100, label: 'Merge',        type: 'merge'  },
-  { id: 'output', x: 500, y: 100, label: 'Output',       type: 'output' },
+  { id: 'input',  x: 40,  y: 258, label: 'Input',        type: 'input'  },
+  { id: 'agent1', x: 290, y: 148, label: 'CodeReviewer', type: 'agent'  },
+  { id: 'agent2', x: 290, y: 376, label: 'DocWriter',    type: 'agent'  },
+  { id: 'merge',  x: 540, y: 258, label: 'Merge',        type: 'merge'  },
+  { id: 'output', x: 720, y: 258, label: 'Output',       type: 'output' },
 ];
 
 const INITIAL_EDGES = [
@@ -320,31 +326,31 @@ function AgentList({ agents, onAddAgent, onDeleteAgent, theme, t }) {
 // ---------------------------------------------------------------------------
 // DAGVisualization
 // ---------------------------------------------------------------------------
+const NODE_META = {
+  input:  { bg: '#059669', label: 'INPUT',  glyph: '▶' },
+  agent:  { bg: '#7c3aed', label: 'AGENT',  glyph: '✦' },
+  merge:  { bg: '#475569', label: 'MERGE',  glyph: '⊕' },
+  output: { bg: '#dc2626', label: 'OUTPUT', glyph: '■' },
+};
+
 function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAddMerge, theme, t }) {
-  const [mode, setMode] = useState('drag'); // 'drag' | 'connect'
+  const [mode, setMode] = useState('drag');
   const [fromNode, setFromNode] = useState(null);
   const [hoveredNode, setHoveredNode] = useState(null);
   const [draggingNode, setDraggingNode] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const svgRef = useRef(null);
-
-  const nodeColor = (type, highlighted = false) => {
-    if (highlighted) return '#f59e0b';
-    const map = {
-      input:  theme === 'dark' ? '#059669' : '#34d399',
-      agent:  theme === 'dark' ? '#7c3aed' : '#a78bfa',
-      merge:  theme === 'dark' ? '#475569' : '#94a3b8',
-      output: theme === 'dark' ? '#dc2626' : '#f87171',
-    };
-    return map[type] ?? map.merge;
-  };
+  const isDark = theme === 'dark';
 
   const toSVG = useCallback((cx, cy) => {
     const svg = svgRef.current;
     if (!svg) return { x: cx, y: cy };
     const r = svg.getBoundingClientRect();
     const vb = svg.viewBox.baseVal;
-    return { x: ((cx - r.left) / r.width) * vb.width, y: ((cy - r.top) / r.height) * vb.height };
+    return {
+      x: ((cx - r.left) / r.width) * vb.width,
+      y: ((cy - r.top) / r.height) * vb.height,
+    };
   }, []);
 
   const handleMouseDown = useCallback((e, nodeId) => {
@@ -362,7 +368,10 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
     const pt = toSVG(e.clientX, e.clientY);
     setNodes(prev => prev.map(n =>
       n.id === draggingNode
-        ? { ...n, x: Math.max(0, Math.min(480, pt.x - dragOffset.x)), y: Math.max(25, Math.min(175, pt.y - dragOffset.y)) }
+        ? { ...n,
+            x: Math.max(0, Math.min(VB_W - NODE_W, pt.x - dragOffset.x)),
+            y: Math.max(0, Math.min(VB_H - NODE_H, pt.y - dragOffset.y)),
+          }
         : n
     ));
   }, [draggingNode, dragOffset, toSVG, setNodes]);
@@ -375,7 +384,7 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
     if (!fromNode) {
       setFromNode(nodeId);
     } else if (fromNode === nodeId) {
-      setFromNode(null); // cancel
+      setFromNode(null);
     } else {
       if (!edges.some(ed => ed.from === fromNode && ed.to === nodeId)) {
         setEdges(prev => [...prev, { from: fromNode, to: nodeId }]);
@@ -397,137 +406,183 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
 
   const switchMode = (m) => { setMode(m); setFromNode(null); setDraggingNode(null); };
 
-  const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
-  const btnBase = (active) => `px-2 py-1 rounded text-xs ${active
-    ? 'bg-purple-600 text-white'
-    : theme === 'dark' ? 'bg-slate-700 text-slate-400 hover:bg-slate-600' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-  }`;
+  const toolBtn = (active) =>
+    `px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+      active
+        ? 'bg-purple-600 text-white'
+        : isDark
+          ? 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+          : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+    }`;
 
   return (
-    <div className={`p-4 border-b ${borderClass}`}>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2">
-        <h3 className={`text-sm font-semibold flex items-center gap-2 ${theme === 'dark' ? 'text-slate-300' : 'text-gray-700'}`}>
-          <span>🔀</span> {t.dagExecution}
-        </h3>
-        <div className="flex gap-1">
-          <button onClick={() => switchMode('drag')}    className={btnBase(mode === 'drag')}>✥ Drag</button>
-          <button onClick={() => switchMode('connect')} className={btnBase(mode === 'connect')}>🔗 Connect</button>
-          <button onClick={onAddMerge} className={`px-2 py-1 rounded text-xs bg-slate-600 hover:bg-slate-500 text-white`}>+ Merge</button>
+    <div className={`flex-1 min-h-0 flex flex-col border-b ${isDark ? 'border-slate-700' : 'border-gray-200'}`}>
+      {/* Toolbar */}
+      <div className={`shrink-0 px-4 py-2 flex items-center justify-between ${isDark ? 'bg-slate-900/80 border-b border-slate-700/60' : 'bg-gray-50 border-b border-gray-200'}`}>
+        <div className="flex items-center gap-2">
+          <span className={`text-xs font-semibold ${isDark ? 'text-slate-300' : 'text-gray-700'}`}>
+            🔀 {t.dagExecution}
+          </span>
+          {mode === 'connect' && (
+            <span className={`text-xs px-2 py-0.5 rounded-full ${isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-700'}`}>
+              {fromNode
+                ? `"${nodes.find(n => n.id === fromNode)?.label}" → click target`
+                : 'Click source node to start edge'}
+            </span>
+          )}
+        </div>
+        <div className="flex gap-1.5">
+          <button onClick={() => switchMode('drag')}    className={toolBtn(mode === 'drag')}>✥ Drag</button>
+          <button onClick={() => switchMode('connect')} className={toolBtn(mode === 'connect')}>🔗 Connect</button>
+          <button onClick={onAddMerge}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${isDark ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'}`}>
+            + Merge
+          </button>
         </div>
       </div>
 
-      {/* Connect mode hint */}
-      {mode === 'connect' && (
-        <p className={`mb-1 text-xs ${theme === 'dark' ? 'text-amber-400' : 'text-amber-600'}`}>
-          {fromNode
-            ? `From "${nodes.find(n => n.id === fromNode)?.label}" → click target node`
-            : 'Click a node to start a connection · click × on an edge to delete it'}
-        </p>
-      )}
-
+      {/* Canvas — wrapper lets SVG fill flex space reliably */}
+      <div className="flex-1 min-h-0 relative" style={{ minHeight: 300 }}>
       <svg
         ref={svgRef}
-        className={`w-full h-40 select-none ${mode === 'connect' ? 'cursor-crosshair' : ''}`}
-        viewBox="0 0 560 200"
+        className={`absolute inset-0 w-full h-full select-none ${mode === 'connect' ? 'cursor-crosshair' : ''}`}
+        viewBox={`0 0 ${VB_W} ${VB_H}`}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
       >
+        <defs>
+          <pattern id="dag-dots" x="0" y="0" width="24" height="24" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="1" fill={isDark ? '#334155' : '#d1d5db'} />
+          </pattern>
+          <marker id="dag-arr" viewBox="0 0 10 10" refX="8" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={isDark ? '#6366f1' : '#818cf8'} />
+          </marker>
+          {nodes.map(n => (
+            <clipPath key={`clip-${n.id}`} id={`nclip-${n.id}`}>
+              <rect x={n.x} y={n.y} width={NODE_W} height={NODE_H} rx="10" />
+            </clipPath>
+          ))}
+        </defs>
+
+        {/* Background */}
+        <rect width={VB_W} height={VB_H} fill={isDark ? '#0f172a' : '#f8fafc'} />
+        <rect width={VB_W} height={VB_H} fill="url(#dag-dots)" />
+
         {/* Edges */}
         {edges.map((edge, i) => {
           const src = nodes.find(n => n.id === edge.from);
           const dst = nodes.find(n => n.id === edge.to);
           if (!src || !dst) return null;
-          const mx = (src.x + 40 + dst.x) / 2;
-          const my = (src.y + dst.y) / 2;
+          const x1 = src.x + NODE_W, y1 = src.y + NODE_H / 2;
+          const x2 = dst.x,          y2 = dst.y + NODE_H / 2;
+          const cp = Math.max(50, Math.abs(x2 - x1) * 0.45);
+          const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
           return (
             <g key={i}>
               <path
-                d={`M ${src.x + 40} ${src.y} Q ${mx} ${my} ${dst.x} ${dst.y}`}
-                stroke={theme === 'dark' ? '#6366f1' : '#818cf8'}
+                d={`M ${x1} ${y1} C ${x1+cp} ${y1}, ${x2-cp} ${y2}, ${x2} ${y2}`}
+                stroke={isDark ? '#6366f1' : '#818cf8'}
                 strokeWidth="2"
                 fill="none"
-                strokeDasharray="4 2"
+                markerEnd="url(#dag-arr)"
               />
-              {/* Delete edge × button at midpoint */}
-              <circle
-                cx={mx} cy={my} r="8"
-                fill={theme === 'dark' ? '#1e293b' : '#fff'}
-                stroke={theme === 'dark' ? '#475569' : '#d1d5db'}
-                strokeWidth="1"
-                style={{ cursor: 'pointer' }}
-                onClick={() => handleDeleteEdge(i)}
-              />
-              <text
-                x={mx} y={my + 4}
-                textAnchor="middle" fontSize="11"
-                fill={theme === 'dark' ? '#94a3b8' : '#6b7280'}
-                style={{ pointerEvents: 'none' }}
-              >
-                ×
-              </text>
+              {/* Hit area for delete */}
+              <circle cx={mx} cy={my} r="10" fill="transparent"
+                style={{ cursor: 'pointer' }} onClick={() => handleDeleteEdge(i)} />
+              {/* × badge */}
+              <circle cx={mx} cy={my} r="7" fill={isDark ? '#1e293b' : '#fff'}
+                stroke={isDark ? '#475569' : '#e2e8f0'} strokeWidth="1"
+                style={{ pointerEvents: 'none' }} />
+              <text x={mx} y={my} textAnchor="middle" fontSize="10"
+                fill={isDark ? '#94a3b8' : '#6b7280'} dominantBaseline="central"
+                style={{ pointerEvents: 'none' }}>×</text>
             </g>
           );
         })}
 
         {/* Nodes */}
         {nodes.map(node => {
-          const isFrom    = fromNode === node.id;
-          const isDrag    = draggingNode === node.id;
-          const isHovered = hoveredNode === node.id;
-          const deletable = node.type === 'agent' || node.type === 'merge';
+          const isFrom     = fromNode === node.id;
+          const isDragging = draggingNode === node.id;
+          const isHovered  = hoveredNode === node.id;
+          const deletable  = node.type === 'agent' || node.type === 'merge';
+          const meta       = NODE_META[node.type] ?? NODE_META.merge;
+          const nx = node.x, ny = node.y;
+
           return (
             <g
               key={node.id}
-              style={{ cursor: mode === 'connect' ? 'pointer' : isDrag ? 'grabbing' : 'grab' }}
+              style={{ cursor: mode === 'connect' ? 'pointer' : isDragging ? 'grabbing' : 'grab' }}
               onMouseDown={e => handleMouseDown(e, node.id)}
               onClick={e => handleNodeClick(e, node.id)}
               onMouseEnter={() => setHoveredNode(node.id)}
               onMouseLeave={() => setHoveredNode(null)}
             >
-              <rect
-                x={node.x} y={node.y - 25} width="80" height="50" rx="8"
-                fill={nodeColor(node.type, isFrom)}
-                stroke={isFrom ? '#f59e0b' : isDrag ? '#fff' : 'none'}
-                strokeWidth="2"
+              {/* Drop shadow */}
+              <rect x={nx+2} y={ny+3} width={NODE_W} height={NODE_H} rx="10"
+                fill={isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.08)'} />
+              {/* Card body */}
+              <rect x={nx} y={ny} width={NODE_W} height={NODE_H} rx="10"
+                fill={isDark ? '#1e293b' : '#ffffff'}
+                stroke={isFrom ? '#f59e0b' : isHovered ? meta.bg : isDark ? '#334155' : '#e2e8f0'}
+                strokeWidth={isFrom || isHovered ? 2 : 1}
               />
-              <text
-                x={node.x + 40} y={node.y + 5}
-                textAnchor="middle" fill="white" fontSize="10" fontWeight="500"
-                style={{ pointerEvents: 'none' }}
-              >
-                {node.label}
+              {/* Left accent bar */}
+              <rect x={nx} y={ny} width="6" height={NODE_H}
+                fill={meta.bg} clipPath={`url(#nclip-${node.id})`} />
+              {/* Icon circle */}
+              <circle cx={nx+28} cy={ny+NODE_H/2} r="13"
+                fill={meta.bg + '20'} stroke={meta.bg + '50'} strokeWidth="1" />
+              <text x={nx+28} y={ny+NODE_H/2} textAnchor="middle" fontSize="12"
+                fill={meta.bg} dominantBaseline="central"
+                style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                {meta.glyph}
               </text>
-              {/* Delete node × — hover + drag mode + deletable type */}
+              {/* Node label */}
+              <text x={nx+50} y={ny+NODE_H/2-8}
+                fill={isDark ? '#f1f5f9' : '#0f172a'}
+                fontSize="11" fontWeight="600" dominantBaseline="middle"
+                style={{ pointerEvents: 'none' }}>
+                {node.label.length > 13 ? node.label.slice(0, 12) + '…' : node.label}
+              </text>
+              {/* Type badge */}
+              <rect x={nx+50} y={ny+NODE_H/2+4} width={58} height={14} rx="4"
+                fill={meta.bg + '22'} />
+              <text x={nx+79} y={ny+NODE_H/2+11}
+                textAnchor="middle" fill={meta.bg} fontSize="8" fontWeight="700"
+                dominantBaseline="middle" style={{ pointerEvents: 'none' }}>
+                {meta.label}
+              </text>
+              {/* Connection ports */}
+              <circle cx={nx+NODE_W} cy={ny+NODE_H/2} r="5"
+                fill={isFrom ? '#f59e0b' : meta.bg}
+                stroke={isDark ? '#0f172a' : '#fff'} strokeWidth="1.5" />
+              <circle cx={nx} cy={ny+NODE_H/2} r="5"
+                fill={meta.bg} stroke={isDark ? '#0f172a' : '#fff'} strokeWidth="1.5" />
+              {/* Delete × button */}
               {deletable && isHovered && mode === 'drag' && (
                 <g onClick={e => handleDeleteNodeClick(e, node.id)}>
-                  <circle cx={node.x + 74} cy={node.y - 19} r="7" fill="#ef4444" style={{ cursor: 'pointer' }} />
-                  <text
-                    x={node.x + 74} y={node.y - 15}
-                    textAnchor="middle" fontSize="9" fill="white"
-                    style={{ pointerEvents: 'none' }}
-                  >
-                    ×
-                  </text>
+                  <circle cx={nx+NODE_W-9} cy={ny+9} r="9" fill="#ef4444"
+                    style={{ cursor: 'pointer' }} />
+                  <text x={nx+NODE_W-9} y={ny+9} textAnchor="middle" fontSize="11"
+                    fill="white" dominantBaseline="central"
+                    style={{ pointerEvents: 'none' }}>×</text>
                 </g>
               )}
             </g>
           );
         })}
       </svg>
+      </div>
 
       {/* Legend */}
-      <div className="flex justify-center gap-4 mt-2 text-xs">
-        {[
-          { type: 'input',  label: 'Input'  },
-          { type: 'agent',  label: 'Agent'  },
-          { type: 'merge',  label: 'Merge'  },
-          { type: 'output', label: 'Output' },
-        ].map(item => (
-          <div key={item.type} className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded" style={{ backgroundColor: nodeColor(item.type) }} />
-            <span className={theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}>{item.label}</span>
+      <div className={`shrink-0 px-4 py-2 flex items-center gap-4 ${isDark ? 'bg-slate-900/80 border-t border-slate-700/60' : 'bg-gray-50 border-t border-gray-200'}`}>
+        {Object.entries(NODE_META).map(([type, meta]) => (
+          <div key={type} className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: meta.bg }} />
+            <span className={`text-xs capitalize ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>{type}</span>
           </div>
         ))}
       </div>
