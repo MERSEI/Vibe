@@ -51,6 +51,48 @@ app.use('/api/gemini', express.raw({ type: '*/*', limit: '2mb' }), (req, res) =>
   proxyReq.end();
 });
 
+// ── Reverse proxy: /api/grafana/* → Grafana OTLP endpoint ──
+// VITE_GRAFANA_ENDPOINT may include /otlp suffix; we use only the hostname
+// so the request path (/otlp/v1/traces) is forwarded correctly.
+const GRAFANA_ENDPOINT = process.env.VITE_GRAFANA_ENDPOINT;
+if (GRAFANA_ENDPOINT) {
+  app.use('/api/grafana', express.raw({ type: '*/*', limit: '2mb' }), (req, res) => {
+    const targetPath = req.originalUrl.replace(/^\/api\/grafana/, '');
+    const body = req.body && req.body.length ? req.body : null;
+    let endpointHostname;
+    try {
+      endpointHostname = new URL(GRAFANA_ENDPOINT).hostname;
+    } catch {
+      endpointHostname = 'otlp-gateway-prod-eu-west-2.grafana.net';
+    }
+
+    const options = {
+      hostname: endpointHostname,
+      port: 443,
+      path: targetPath,
+      method: req.method,
+      headers: {
+        'content-type': req.headers['content-type'] || 'application/json',
+        'authorization': req.headers['authorization'] || '',
+      },
+    };
+    if (body) options.headers['content-length'] = body.length;
+
+    const proxyReq = https.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    });
+
+    proxyReq.on('error', (err) => {
+      console.error('[proxy] Grafana error:', err.message);
+      if (!res.headersSent) res.status(502).json({ error: 'Grafana proxy error: ' + err.message });
+    });
+
+    if (body) proxyReq.write(body);
+    proxyReq.end();
+  });
+}
+
 // JSON body parser for RAG routes
 app.use(express.json({ limit: '2mb' }));
 
