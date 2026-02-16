@@ -1,10 +1,13 @@
 /**
  * FileTree Component
  *
- * Hierarchical file browser with expand/collapse
+ * Hierarchical file browser with expand/collapse and dependency graph:
+ * - →N badge: file imports N project files
+ * - ←M badge: file is imported by M project files
+ * - Click badge to expand inline dep viewer (navigate by clicking dep names)
  */
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 
 const FILE_ICONS = {
   js: '🟨',
@@ -19,6 +22,76 @@ const FILE_ICONS = {
   default: '📄',
 };
 
+// ── Dependency helpers ──────────────────────────────────────────────────────
+
+function flattenFiles(tree, prefix = '') {
+  const result = {};
+  for (const [name, item] of Object.entries(tree)) {
+    const path = prefix ? `${prefix}/${name}` : name;
+    if (item.type === 'file') {
+      result[path] = item.content || '';
+    } else if (item.type === 'folder' && item.children) {
+      Object.assign(result, flattenFiles(item.children, path));
+    }
+  }
+  return result;
+}
+
+function parseImports(content) {
+  const imports = [];
+  // ES import: import ... from './foo'  /  import './foo'
+  // dynamic: import('./foo')
+  // require: require('./foo')
+  const re = /(?:import\s+(?:[\s\S]*?\s+from\s+)?|require\s*\(\s*)['"](\.[^'"]+)['"]/g;
+  let m;
+  while ((m = re.exec(content)) !== null) {
+    imports.push(m[1]);
+  }
+  return imports;
+}
+
+function resolveImport(fromFile, importPath, allFiles) {
+  const dir = fromFile.split('/').slice(0, -1).join('/');
+  const joined = dir ? `${dir}/${importPath}` : importPath;
+  const parts = joined.split('/');
+  const normalized = [];
+  for (const p of parts) {
+    if (p === '..') normalized.pop();
+    else if (p !== '.') normalized.push(p);
+  }
+  const base = normalized.join('/');
+  for (const ext of ['', '.js', '.jsx', '.ts', '.tsx', '.json']) {
+    if (allFiles[base + ext] !== undefined) return base + ext;
+  }
+  return null;
+}
+
+function buildDepGraph(files) {
+  const allFiles = flattenFiles(files);
+  const imports = {};    // path → paths it imports
+  const importedBy = {}; // path → paths that import it
+
+  for (const [path, content] of Object.entries(allFiles)) {
+    const ext = path.split('.').pop();
+    if (!['js', 'jsx', 'ts', 'tsx'].includes(ext)) continue;
+
+    const rawImports = parseImports(content);
+    const resolved = rawImports
+      .map(imp => resolveImport(path, imp, allFiles))
+      .filter(Boolean);
+
+    imports[path] = resolved;
+    for (const dep of resolved) {
+      if (!importedBy[dep]) importedBy[dep] = [];
+      if (!importedBy[dep].includes(path)) importedBy[dep].push(path);
+    }
+  }
+
+  return { imports, importedBy };
+}
+
+// ── Main component ──────────────────────────────────────────────────────────
+
 export function FileTree({
   files,
   selectedFile,
@@ -31,16 +104,17 @@ export function FileTree({
 }) {
   const [expanded, setExpanded] = useState({ src: true, docs: true });
   const [contextMenu, setContextMenu] = useState(null);
-  // { folder: string } — shows inline input inside that folder (null = hidden)
   const [newFileState, setNewFileState] = useState({ folder: null, name: '' });
-  // inline folder creation at root
   const [newFolderState, setNewFolderState] = useState({ active: false, name: '' });
-  // path being renamed inline
   const [renamingPath, setRenamingPath] = useState(null);
   const [renameValue, setRenameValue] = useState('');
+  const [expandedDeps, setExpandedDeps] = useState(new Set());
   const newFileInputRef = useRef(null);
   const newFolderInputRef = useRef(null);
   const renameInputRef = useRef(null);
+
+  // Build dependency graph whenever files change
+  const depGraph = useMemo(() => buildDepGraph(files), [files]);
 
   const toggleFolder = useCallback((path) => {
     setExpanded(prev => ({ ...prev, [path]: !prev[path] }));
@@ -60,21 +134,27 @@ export function FileTree({
     return FILE_ICONS[ext] || FILE_ICONS.default;
   };
 
-  // Focus new-file input when it appears
+  const toggleDeps = useCallback((path, e) => {
+    e.stopPropagation();
+    setExpandedDeps(prev => {
+      const s = new Set(prev);
+      s.has(path) ? s.delete(path) : s.add(path);
+      return s;
+    });
+  }, []);
+
   useEffect(() => {
     if (newFileState.folder !== null && newFileInputRef.current) {
       newFileInputRef.current.focus();
     }
   }, [newFileState.folder]);
 
-  // Focus folder input when it appears
   useEffect(() => {
     if (newFolderState.active && newFolderInputRef.current) {
       newFolderInputRef.current.focus();
     }
   }, [newFolderState.active]);
 
-  // Focus rename input when it appears
   useEffect(() => {
     if (renamingPath !== null && renameInputRef.current) {
       renameInputRef.current.focus();
@@ -83,7 +163,6 @@ export function FileTree({
   }, [renamingPath]);
 
   const startNewFile = useCallback((folder) => {
-    // expand the folder
     setExpanded(prev => ({ ...prev, [folder]: true }));
     setNewFileState({ folder, name: '' });
   }, []);
@@ -121,6 +200,12 @@ export function FileTree({
       : 'bg-white border-purple-400 text-gray-800'
   }`;
 
+  const depItemClass = `cursor-pointer text-xs py-0.5 px-1 rounded truncate max-w-full transition-colors ${
+    theme === 'dark'
+      ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+      : 'text-gray-500 hover:text-gray-800 hover:bg-gray-100'
+  }`;
+
   const renderTree = (items, path = '') => {
     const entries = Object.entries(items);
     const result = [];
@@ -129,14 +214,21 @@ export function FileTree({
       const fullPath = path ? `${path}/${name}` : name;
       const isFolder = item.type === 'folder';
       const isSelected = selectedFile === fullPath;
-      const isExpanded = expanded[fullPath];
+      const isExpand = expanded[fullPath];
       const depth = fullPath.split('/').length - 1;
       const isRenaming = renamingPath === fullPath;
 
+      // Dependency info for this file
+      const fileImports = (!isFolder && depGraph.imports[fullPath]) || [];
+      const fileImportedBy = (!isFolder && depGraph.importedBy[fullPath]) || [];
+      const hasDeps = fileImports.length > 0 || fileImportedBy.length > 0;
+      const depsOpen = expandedDeps.has(fullPath);
+
       result.push(
         <div key={fullPath}>
+          {/* File / folder row */}
           <div
-            className={`flex items-center gap-2 px-2 py-1.5 cursor-pointer text-sm transition-all group ${
+            className={`flex items-center gap-1.5 px-2 py-1.5 cursor-pointer text-sm transition-all group ${
               isSelected
                 ? theme === 'dark'
                   ? 'bg-purple-600/30 text-purple-200'
@@ -149,19 +241,16 @@ export function FileTree({
             onClick={() => isFolder ? toggleFolder(fullPath) : onSelect(fullPath)}
             onContextMenu={(e) => handleContextMenu(e, fullPath, item.type)}
           >
-            {/* Expand/collapse icon for folders */}
             {isFolder && (
-              <span className={`text-xs transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
+              <span className={`text-xs transition-transform ${isExpand ? 'rotate-90' : ''}`}>
                 ▶
               </span>
             )}
 
-            {/* File/folder icon */}
-            <span className="text-sm">
-              {isFolder ? (isExpanded ? '📂' : '📁') : getFileIcon(name)}
+            <span className="text-sm shrink-0">
+              {isFolder ? (isExpand ? '📂' : '📁') : getFileIcon(name)}
             </span>
 
-            {/* Name or inline rename input */}
             {isRenaming ? (
               <input
                 ref={renameInputRef}
@@ -177,16 +266,41 @@ export function FileTree({
               />
             ) : (
               <span
-                className="truncate flex-1"
+                className="truncate flex-1 min-w-0"
                 onDoubleClick={(e) => { e.stopPropagation(); startRename(fullPath); }}
               >
                 {name}
               </span>
             )}
 
-            {/* Actions (visible on hover) */}
+            {/* Dependency badge — shown when file has imports or importedBy */}
+            {!isFolder && !isRenaming && hasDeps && (
+              <button
+                onClick={(e) => toggleDeps(fullPath, e)}
+                title={`${fileImports.length} import${fileImports.length !== 1 ? 's' : ''}, used by ${fileImportedBy.length}`}
+                className={`shrink-0 flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] font-mono transition-colors ${
+                  depsOpen
+                    ? 'bg-purple-600/30 text-purple-300'
+                    : theme === 'dark'
+                      ? 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/50'
+                      : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {fileImports.length > 0 && (
+                  <span className="text-blue-400">→{fileImports.length}</span>
+                )}
+                {fileImports.length > 0 && fileImportedBy.length > 0 && (
+                  <span className={theme === 'dark' ? 'text-slate-600' : 'text-gray-300'}>·</span>
+                )}
+                {fileImportedBy.length > 0 && (
+                  <span className="text-emerald-400">←{fileImportedBy.length}</span>
+                )}
+              </button>
+            )}
+
+            {/* Hover actions */}
             {!isRenaming && (
-              <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+              <div className="opacity-0 group-hover:opacity-100 flex gap-1 shrink-0">
                 {isFolder && (
                   <button
                     className={`p-0.5 rounded text-xs ${theme === 'dark' ? 'hover:bg-slate-700' : 'hover:bg-gray-200'}`}
@@ -212,11 +326,68 @@ export function FileTree({
             )}
           </div>
 
+          {/* Inline dependency viewer */}
+          {!isFolder && depsOpen && hasDeps && (
+            <div
+              className={`py-1 border-l-2 ml-4 ${
+                theme === 'dark' ? 'border-slate-700' : 'border-gray-200'
+              }`}
+              style={{ paddingLeft: `${depth * 12 + 16}px` }}
+            >
+              {fileImports.length > 0 && (
+                <div className="mb-1">
+                  <div className={`text-[10px] font-semibold uppercase tracking-wider mb-0.5 px-1 ${
+                    theme === 'dark' ? 'text-slate-500' : 'text-gray-400'
+                  }`}>
+                    imports
+                  </div>
+                  {fileImports.map(dep => (
+                    <div
+                      key={dep}
+                      onClick={() => onSelect(dep)}
+                      className={depItemClass}
+                      title={dep}
+                    >
+                      <span className="text-blue-400 mr-1">→</span>
+                      {dep.split('/').pop()}
+                      <span className={`ml-1 text-[10px] ${theme === 'dark' ? 'text-slate-600' : 'text-gray-400'}`}>
+                        {dep.split('/').slice(0, -1).join('/')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {fileImportedBy.length > 0 && (
+                <div>
+                  <div className={`text-[10px] font-semibold uppercase tracking-wider mb-0.5 px-1 ${
+                    theme === 'dark' ? 'text-slate-500' : 'text-gray-400'
+                  }`}>
+                    used by
+                  </div>
+                  {fileImportedBy.map(dep => (
+                    <div
+                      key={dep}
+                      onClick={() => onSelect(dep)}
+                      className={depItemClass}
+                      title={dep}
+                    >
+                      <span className="text-emerald-400 mr-1">←</span>
+                      {dep.split('/').pop()}
+                      <span className={`ml-1 text-[10px] ${theme === 'dark' ? 'text-slate-600' : 'text-gray-400'}`}>
+                        {dep.split('/').slice(0, -1).join('/')}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Render children if folder is expanded */}
-          {isFolder && isExpanded && item.children && (
+          {isFolder && isExpand && item.children && (
             <div>
               {renderTree(item.children, fullPath)}
-              {/* Inline new-file input inside this folder */}
               {newFileState.folder === fullPath && (
                 <div
                   className="flex items-center gap-2 px-2 py-1"
@@ -274,7 +445,7 @@ export function FileTree({
         </div>
       </div>
 
-      {/* Inline new-file input at root level (when folder = '') */}
+      {/* Inline new-file input at root level */}
       {newFileState.folder === '' && (
         <div className="flex items-center gap-2 px-2 py-1 border-b border-dashed border-slate-600">
           <span className="text-sm">📄</span>
@@ -337,7 +508,6 @@ export function FileTree({
             closeContextMenu();
           }}
           onDuplicate={() => {
-            // Handle duplicate
             closeContextMenu();
           }}
           theme={theme}
@@ -351,10 +521,7 @@ export function FileTree({
 function ContextMenu({ x, y, type, onClose, onRename, onDelete, onDuplicate, theme, t }) {
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 z-40" onClick={onClose} />
-
-      {/* Menu */}
       <div
         className={`fixed z-50 py-1 rounded-lg shadow-xl min-w-32 ${
           theme === 'dark' ? 'bg-slate-800 border border-slate-700' : 'bg-white border border-gray-200'
