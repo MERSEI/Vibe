@@ -30,7 +30,7 @@ const GRAFANA_TOKEN = import.meta.env.VITE_GRAFANA_TOKEN;
 if (GRAFANA_ENDPOINT && GRAFANA_TOKEN) {
   import('@opentelemetry/exporter-trace-otlp-http').then(({ OTLPTraceExporter }) => {
     const otlpExporter = new OTLPTraceExporter({
-      url: `${GRAFANA_ENDPOINT}/otlp/v1/traces`,
+      url: `/api/grafana/otlp/v1/traces`,
       headers: {
         Authorization: `Basic ${btoa(GRAFANA_TOKEN)}`,
       },

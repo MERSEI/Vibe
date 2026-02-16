@@ -116,6 +116,13 @@ export const LLM_MODELS = [
   { id: 'gpt-4o', name: 'Gemini 2.0 Flash (via gpt-4o alias)', costPer1k: 0 },
 ];
 
+// LLM Providers
+export const LLM_PROVIDERS = [
+  { id: 'gemini',    name: 'Gemini',    baseUrl: '/api/gemini/v1beta/openai', placeholder: 'AIzaSy...' },
+  { id: 'openai',    name: 'OpenAI',    baseUrl: '/api/openai/v1',            placeholder: 'sk-...' },
+  { id: 'anthropic', name: 'Anthropic', baseUrl: '/api/anthropic/v1',         placeholder: 'sk-ant-...' },
+];
+
 // Keyboard shortcuts
 export const KEYBOARD_SHORTCUTS = [
   { keys: ['Cmd/Ctrl', 'S'], action: 'save', description: 'Save file' },

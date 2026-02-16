@@ -7,6 +7,7 @@
  */
 
 import { withSpan } from '../telemetry/tracer';
+import { LLM_PROVIDERS } from '../../utils/constants';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 const GEMINI_BASE_URL = '/api/gemini/v1beta/openai';
@@ -236,8 +237,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ─── Реальный вызов Gemini API ──────────────────────────────────────────────
 
-async function callGemini({ model, systemPrompt, userMessage, maxTokens }) {
+async function callGemini({ model, systemPrompt, userMessage, maxTokens, apiKey, baseUrl }) {
   const geminiModel = resolveGeminiModel(model);
+  const key = apiKey || GEMINI_API_KEY;
+  const url = baseUrl || GEMINI_BASE_URL;
 
   const messages = [];
   if (systemPrompt) {
@@ -245,11 +248,11 @@ async function callGemini({ model, systemPrompt, userMessage, maxTokens }) {
   }
   messages.push({ role: 'user', content: userMessage });
 
-  const response = await fetch(`${GEMINI_BASE_URL}/chat/completions`, {
+  const response = await fetch(`${url}/chat/completions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${GEMINI_API_KEY}`,
+      'Authorization': `Bearer ${key}`,
     },
     body: JSON.stringify({
       model: geminiModel,
@@ -279,16 +282,22 @@ export async function sendMessage({
   userMessage,
   maxTokens = 1024,
   traceName = 'llm.complete()',
+  apiKey,
+  provider = 'gemini',
 }) {
-  const isReal = Boolean(GEMINI_API_KEY);
+  const key = apiKey || GEMINI_API_KEY;
+  const providerBaseUrl = apiKey
+    ? (LLM_PROVIDERS.find(p => p.id === provider)?.baseUrl ?? GEMINI_BASE_URL)
+    : GEMINI_BASE_URL;
+  const isReal = Boolean(key);
 
   return withSpan(traceName, async (span) => {
     let text, resolvedModel, inputTokens, outputTokens;
 
     if (isReal) {
-      // ── Реальный Gemini API ──
+      // ── Реальный API ──
       const result = await span.span('api_call', () =>
-        callGemini({ model, systemPrompt, userMessage, maxTokens })
+        callGemini({ model, systemPrompt, userMessage, maxTokens, apiKey: key, baseUrl: providerBaseUrl })
       );
       text = result.text;
       resolvedModel = result.geminiModel;

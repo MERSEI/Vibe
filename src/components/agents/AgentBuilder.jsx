@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
-import { AGENT_TEMPLATES, LLM_MODELS, CURSOR_COLORS } from '../../utils/constants';
+import { AGENT_TEMPLATES, LLM_MODELS, LLM_PROVIDERS, CURSOR_COLORS } from '../../utils/constants';
 import { sendMessage } from '../../api/anthropic/client';
 
 // DAG canvas dimensions
@@ -73,9 +73,8 @@ function topoLevels(nodes, edges) {
 export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileContent, updateFile, selectedFile }) {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
   const [agents, setAgents] = useState([
-    { id: 1, name: 'CodeReviewer', model: 'claude-3-opus',   status: 'idle',      tools: ['code_analysis', 'git_diff'] },
-    { id: 2, name: 'DocWriter',    model: 'claude-3-sonnet', status: 'running',   tools: ['markdown_gen'] },
-    { id: 3, name: 'TestGenerator',model: 'claude-3-haiku',  status: 'completed', tools: ['test_runner'] },
+    { id: 1, name: 'CodeReviewer', model: 'claude-3-opus',   status: 'idle',    tools: ['code_analysis', 'git_diff'], provider: 'gemini', apiKey: '' },
+    { id: 2, name: 'DocWriter',    model: 'claude-3-sonnet', status: 'idle',    tools: ['markdown_gen'],              provider: 'gemini', apiKey: '' },
   ]);
   const [dagNodes, setDagNodes] = useState(INITIAL_NODES);
   const [dagEdges, setDagEdges] = useState(INITIAL_EDGES);
@@ -83,6 +82,9 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
   const [dagRunning, setDagRunning] = useState(false);
   const [dagInput,   setDagInput]   = useState('');
   const [dagOutput,  setDagOutput]  = useState(null);
+  const [inputFiles,      setInputFiles]      = useState([]);
+  const [showInputPicker, setShowInputPicker] = useState(false);
+  const [showOutputPanel, setShowOutputPanel] = useState(false);
 
   const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
 
@@ -95,7 +97,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
     if (!createFile) return;
     agents.forEach(agent => {
       const content = JSON.stringify(
-        { name: agent.name, model: agent.model, tools: agent.tools },
+        { name: agent.name, model: agent.model, tools: agent.tools, provider: agent.provider, apiKey: agent.apiKey },
         null, 2
       );
       if (agentFileSyncRef.current[agent.name] !== content) {
@@ -118,11 +120,14 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
         if (fileNode.content === agentFileSyncRef.current[agent.name]) return agent;
         try {
           const parsed = JSON.parse(fileNode.content);
-          const newModel = parsed.model ?? agent.model;
-          const newTools = Array.isArray(parsed.tools) ? parsed.tools : agent.tools;
-          if (newModel !== agent.model || JSON.stringify(newTools) !== JSON.stringify(agent.tools)) {
+          const newModel    = parsed.model    ?? agent.model;
+          const newTools    = Array.isArray(parsed.tools) ? parsed.tools : agent.tools;
+          const newProvider = parsed.provider ?? agent.provider ?? 'gemini';
+          const newApiKey   = parsed.apiKey   ?? agent.apiKey   ?? '';
+          if (newModel !== agent.model || JSON.stringify(newTools) !== JSON.stringify(agent.tools) ||
+              newProvider !== agent.provider || newApiKey !== agent.apiKey) {
             changed = true;
-            return { ...agent, model: newModel, tools: newTools };
+            return { ...agent, model: newModel, tools: newTools, provider: newProvider, apiKey: newApiKey };
           }
         } catch {}
         return agent;
@@ -200,7 +205,14 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
           .map(e => outputs[e.from] ?? '')
           .join('\n\n---\n\n');
 
-        if (node.type === 'input')  { outputs[nodeId] = userInput; return; }
+        if (node.type === 'input') {
+        const fileContents = inputFiles.map(path => {
+          const content = getFileContent?.(path);
+          return content ? `// ${path}\n${content}` : '';
+        }).filter(Boolean).join('\n\n');
+        outputs[nodeId] = fileContents ? `${fileContents}\n\n${userInput}` : userInput;
+        return;
+      }
         if (node.type === 'merge')  { outputs[nodeId] = upstreamText; return; }
         if (node.type === 'output') { outputs[nodeId] = upstreamText; setDagOutput(upstreamText); return; }
 
@@ -214,6 +226,8 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
               systemPrompt: `You are ${agent.name}. Tools: ${agent.tools.join(', ')}`,
               userMessage: upstreamText || userInput,
               traceName: `agent.${agent.name}`,
+              apiKey: agent.apiKey || undefined,
+              provider: agent.provider || 'gemini',
             });
             outputs[nodeId] = res.text;
             setNodeStatus(prev => ({ ...prev, [nodeId]: 'completed' }));
@@ -225,7 +239,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
       }));
     }
     setDagRunning(false);
-  }, [dagNodes, dagEdges, agents]);
+  }, [dagNodes, dagEdges, agents, inputFiles, getFileContent]);
 
   /** Delete a DAG node by nodeId (from DAG canvas) */
   const handleDeleteDagNode = useCallback((nodeId) => {
@@ -259,7 +273,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
       </div>
 
       {/* Right Panel — DAG + Config */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col overflow-y-auto">
         <DAGVisualization
           nodes={dagNodes}
           setNodes={setDagNodes}
@@ -272,6 +286,11 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
           dagRunning={dagRunning}
           dagInput={dagInput}
           setDagInput={setDagInput}
+          dagOutput={dagOutput}
+          files={files}
+          inputFiles={inputFiles}
+          onInputNodeClick={() => setShowInputPicker(true)}
+          onOutputNodeClick={() => dagOutput && setShowOutputPanel(true)}
           theme={theme}
           t={t}
         />
@@ -294,12 +313,35 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
             onAgentStatusChange={(name, status) =>
               setAgents(prev => prev.map(a => a.name === name ? { ...a, status } : a))
             }
+            onUpdateAgentKeys={(name, provider, apiKey) =>
+              setAgents(prev => prev.map(a => a.name === name ? { ...a, provider, apiKey } : a))
+            }
             createFile={createFile}
             selectFile={selectFile}
             selectedFile={selectedFile}
             files={files}
             getFileContent={getFileContent}
             updateFile={updateFile}
+            theme={theme}
+          />
+        )}
+
+        {/* Input file picker modal */}
+        {showInputPicker && (
+          <InputFilePicker
+            files={files}
+            selected={inputFiles}
+            onSelect={setInputFiles}
+            onClose={() => setShowInputPicker(false)}
+            theme={theme}
+          />
+        )}
+
+        {/* Output viewer modal */}
+        {showOutputPanel && dagOutput && (
+          <OutputViewer
+            output={dagOutput}
+            onClose={() => setShowOutputPanel(false)}
             theme={theme}
           />
         )}
@@ -483,7 +525,8 @@ const NODE_META = {
 const STATUS_STROKE = { running: '#3b82f6', completed: '#22c55e', error: '#ef4444' };
 
 function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAddMerge,
-  nodeStatuses, onRun, dagRunning, dagInput, setDagInput, theme, t }) {
+  nodeStatuses, onRun, dagRunning, dagInput, setDagInput, dagOutput,
+  files, inputFiles, onInputNodeClick, onOutputNodeClick, theme, t }) {
   const [mode, setMode] = useState('drag');
   const [fromNode, setFromNode] = useState(null);
   const [hoveredNode, setHoveredNode] = useState(null);
@@ -529,8 +572,14 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
   const handleMouseUp = useCallback(() => setDraggingNode(null), []);
 
   const handleNodeClick = useCallback((e, nodeId) => {
-    if (mode !== 'connect') return;
     e.stopPropagation();
+    if (mode !== 'connect') {
+      // drag mode: Input/Output node special actions
+      const node = nodes.find(n => n.id === nodeId);
+      if (node?.type === 'input')  { onInputNodeClick?.(); return; }
+      if (node?.type === 'output') { onOutputNodeClick?.(); return; }
+      return;
+    }
     if (!fromNode) {
       setFromNode(nodeId);
     } else if (fromNode === nodeId) {
@@ -541,7 +590,7 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
       }
       setFromNode(null);
     }
-  }, [mode, fromNode, edges, setEdges]);
+  }, [mode, fromNode, edges, setEdges, nodes, onInputNodeClick, onOutputNodeClick]);
 
   const handleDeleteNodeClick = useCallback((e, nodeId) => {
     e.preventDefault();
@@ -566,7 +615,7 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
     }`;
 
   return (
-    <div className={`flex-1 min-h-0 flex flex-col border-b ${isDark ? 'border-slate-700' : 'border-gray-200'}`}>
+    <div className={`shrink-0 flex flex-col border-b ${isDark ? 'border-slate-700' : 'border-gray-200'}`} style={{ minHeight: 520 }}>
       {/* Toolbar */}
       <div className={`shrink-0 px-4 py-2 flex items-center justify-between ${isDark ? 'bg-slate-900/80 border-b border-slate-700/60' : 'bg-gray-50 border-b border-gray-200'}`}>
         <div className="flex items-center gap-2">
@@ -736,6 +785,20 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
                 stroke={isDark ? '#0f172a' : '#fff'} strokeWidth="1.5" />
               <circle cx={nx} cy={ny+NODE_H/2} r="5"
                 fill={meta.bg} stroke={isDark ? '#0f172a' : '#fff'} strokeWidth="1.5" />
+              {/* Input node: files attached badge */}
+              {node.type === 'input' && inputFiles?.length > 0 && (
+                <text x={nx + NODE_W / 2} y={ny - 7} textAnchor="middle" fontSize="9"
+                  fill="#059669" dominantBaseline="central" style={{ pointerEvents: 'none' }}>
+                  📎 {inputFiles.length} file{inputFiles.length > 1 ? 's' : ''}
+                </text>
+              )}
+              {/* Output node: view results badge */}
+              {node.type === 'output' && dagOutput && (
+                <text x={nx + NODE_W / 2} y={ny - 7} textAnchor="middle" fontSize="9"
+                  fill="#22c55e" dominantBaseline="central" style={{ pointerEvents: 'none' }}>
+                  📤 View
+                </text>
+              )}
               {/* Delete × button */}
               {deletable && isHovered && mode === 'drag' && (
                 <g onClick={e => handleDeleteNodeClick(e, node.id)}>
@@ -750,16 +813,18 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
           );
         })}
       </svg>
-      </div>
 
-      {/* Legend */}
-      <div className={`shrink-0 px-4 py-2 flex items-center gap-4 ${isDark ? 'bg-slate-900/80 border-t border-slate-700/60' : 'bg-gray-50 border-t border-gray-200'}`}>
+      {/* Legend — absolute overlay at bottom of canvas */}
+      <div className={`absolute bottom-0 left-0 right-0 px-4 py-1.5 flex items-center gap-4 pointer-events-none ${
+        isDark ? 'bg-gradient-to-t from-slate-950/80 to-transparent' : 'bg-gradient-to-t from-white/80 to-transparent'
+      }`}>
         {Object.entries(NODE_META).map(([type, meta]) => (
           <div key={type} className="flex items-center gap-1.5">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: meta.bg }} />
             <span className={`text-xs capitalize ${isDark ? 'text-slate-400' : 'text-gray-500'}`}>{type}</span>
           </div>
         ))}
+      </div>
       </div>
     </div>
   );
@@ -768,13 +833,15 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
 // ---------------------------------------------------------------------------
 // AgentConfig
 // ---------------------------------------------------------------------------
-function AgentConfig({ template, onClose, onAgentStatusChange, createFile, selectFile, selectedFile, files, getFileContent, updateFile, theme }) {
+function AgentConfig({ template, onClose, onAgentStatusChange, onUpdateAgentKeys, createFile, selectFile, selectedFile, files, getFileContent, updateFile, theme }) {
   const [config, setConfig] = useState({
     name: template.name,
     model: template.model,
     temperature: 0.7,
     tools: template.tools,
   });
+  const [localProvider, setLocalProvider] = useState(template.provider ?? 'gemini');
+  const [localApiKey,   setLocalApiKey]   = useState(template.apiKey   ?? '');
   const [userPrompt, setUserPrompt]     = useState('');
   const [running, setRunning]           = useState(false);
   const [output, setOutput]             = useState('');
@@ -813,12 +880,15 @@ function AgentConfig({ template, onClose, onAgentStatusChange, createFile, selec
     }
 
     try {
+      onUpdateAgentKeys?.(config.name, localProvider, localApiKey);
       const result = await sendMessage({
         model: config.model,
         systemPrompt: `You are ${config.name}. ${template.description}. Available tools: ${config.tools.join(', ')}.`,
         userMessage: userPrompt + contextBlock,
         maxTokens: 1024,
         traceName: `agent.run() — ${config.name}`,
+        apiKey: localApiKey || undefined,
+        provider: localProvider,
       });
       setOutput(result.text);
       onAgentStatusChange?.(config.name, 'completed');
@@ -881,6 +951,25 @@ function AgentConfig({ template, onClose, onAgentStatusChange, createFile, selec
           >
             {LLM_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
+        </div>
+        <div>
+          <label className={`block text-xs mb-1 ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>Provider & API Key</label>
+          <div className="flex gap-2">
+            <select
+              value={localProvider}
+              onChange={e => setLocalProvider(e.target.value)}
+              className={`w-28 px-2 py-1.5 rounded-lg border text-sm outline-none ${inputClass}`}
+            >
+              {LLM_PROVIDERS.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <input
+              type="password"
+              value={localApiKey}
+              onChange={e => setLocalApiKey(e.target.value)}
+              placeholder={LLM_PROVIDERS.find(p => p.id === localProvider)?.placeholder ?? 'API key...'}
+              className={`flex-1 px-2 py-1.5 rounded-lg border text-sm outline-none ${inputClass}`}
+            />
+          </div>
         </div>
         <div>
           <label className={`block text-xs mb-1 ${theme === 'dark' ? 'text-slate-400' : 'text-gray-500'}`}>
@@ -1042,6 +1131,108 @@ function AgentConfig({ template, onClose, onAgentStatusChange, createFile, selec
           <pre className="whitespace-pre-wrap font-sans leading-relaxed">{error || output}</pre>
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// InputFilePicker — modal to select files from the file tree for Input node
+// ---------------------------------------------------------------------------
+function getFlatPaths(tree, prefix = '') {
+  const paths = [];
+  if (!tree) return paths;
+  for (const [name, item] of Object.entries(tree)) {
+    const p = prefix ? `${prefix}/${name}` : name;
+    if (item.type === 'folder' && item.children) {
+      paths.push(...getFlatPaths(item.children, p));
+    } else if (item.type !== 'folder') {
+      paths.push(p);
+    }
+  }
+  return paths;
+}
+
+function InputFilePicker({ files, selected, onSelect, onClose, theme }) {
+  const isDark = theme === 'dark';
+  const allPaths = getFlatPaths(files);
+  const [checked, setChecked] = useState(new Set(selected));
+
+  const toggle = (path) => {
+    setChecked(prev => {
+      const next = new Set(prev);
+      next.has(path) ? next.delete(path) : next.add(path);
+      return next;
+    });
+  };
+
+  const commit = () => {
+    onSelect([...checked]);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className={`w-96 max-h-[70vh] flex flex-col rounded-xl shadow-2xl border ${
+        isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'
+      }`}>
+        <div className={`px-4 py-3 border-b flex items-center justify-between ${
+          isDark ? 'border-slate-700' : 'border-gray-200'
+        }`}>
+          <span className={`text-sm font-semibold ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>
+            📎 Attach files to Input
+          </span>
+          <button onClick={onClose} className={`text-xs px-2 py-1 rounded ${isDark ? 'hover:bg-slate-700 text-slate-400' : 'hover:bg-gray-100 text-gray-500'}`}>✕</button>
+        </div>
+        <div className="flex-1 overflow-auto p-2">
+          {allPaths.length === 0 ? (
+            <p className={`text-xs p-2 ${isDark ? 'text-slate-500' : 'text-gray-400'}`}>No files in project</p>
+          ) : allPaths.map(path => (
+            <label key={path} className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer text-sm ${
+              isDark ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-gray-50 text-gray-700'
+            }`}>
+              <input type="checkbox" checked={checked.has(path)} onChange={() => toggle(path)} className="accent-purple-500" />
+              <span className="truncate">{path}</span>
+            </label>
+          ))}
+        </div>
+        <div className={`px-4 py-3 border-t flex justify-end gap-2 ${isDark ? 'border-slate-700' : 'border-gray-200'}`}>
+          <button onClick={onClose} className={`px-3 py-1.5 rounded text-xs ${isDark ? 'bg-slate-700 hover:bg-slate-600 text-slate-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}`}>Cancel</button>
+          <button onClick={commit} className="px-3 py-1.5 rounded text-xs bg-purple-600 hover:bg-purple-500 text-white">
+            Attach {checked.size > 0 ? `(${checked.size})` : ''}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// OutputViewer — modal to view DAG execution results
+// ---------------------------------------------------------------------------
+function OutputViewer({ output, onClose, theme }) {
+  const isDark = theme === 'dark';
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className={`w-[640px] max-h-[80vh] flex flex-col rounded-xl shadow-2xl border ${
+        isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-gray-200'
+      }`}>
+        <div className={`px-4 py-3 border-b flex items-center justify-between ${
+          isDark ? 'border-slate-700' : 'border-gray-200'
+        }`}>
+          <span className={`text-sm font-semibold ${isDark ? 'text-slate-200' : 'text-gray-800'}`}>
+            📤 DAG Execution Output
+          </span>
+          <button onClick={onClose} className={`text-xs px-2 py-1 rounded ${isDark ? 'hover:bg-slate-700 text-slate-400' : 'hover:bg-gray-100 text-gray-500'}`}>✕</button>
+        </div>
+        <div className="flex-1 overflow-auto p-4">
+          <pre className={`text-xs whitespace-pre-wrap leading-relaxed ${isDark ? 'text-slate-300' : 'text-gray-700'}`}>
+            {output}
+          </pre>
+        </div>
+        <div className={`px-4 py-3 border-t flex justify-end ${isDark ? 'border-slate-700' : 'border-gray-200'}`}>
+          <button onClick={onClose} className="px-3 py-1.5 rounded text-xs bg-purple-600 hover:bg-purple-500 text-white">Close</button>
+        </div>
+      </div>
     </div>
   );
 }

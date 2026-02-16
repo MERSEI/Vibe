@@ -32,6 +32,16 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/gemini/, ''),
       },
+      '/api/openai': {
+        target: 'https://api.openai.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/openai/, ''),
+      },
+      '/api/grafana': {
+        target: process.env.VITE_GRAFANA_ENDPOINT || 'https://otlp-gateway-prod-eu-west-2.grafana.net',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/grafana/, ''),
+      },
       '/api/rag': {
         target: 'http://localhost:3001',
       },
@@ -39,6 +49,28 @@ export default defineConfig({
   },
   preview: {
     port: 4173,
+    proxy: {
+      '/api/anthropic': {
+        target: 'https://api.anthropic.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/anthropic/, ''),
+      },
+      '/api/gemini': {
+        target: 'https://generativelanguage.googleapis.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/gemini/, ''),
+      },
+      '/api/openai': {
+        target: 'https://api.openai.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/openai/, ''),
+      },
+      '/api/grafana': {
+        target: process.env.VITE_GRAFANA_ENDPOINT || 'https://otlp-gateway-prod-eu-west-2.grafana.net',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/grafana/, ''),
+      },
+    },
   },
   test: {
     environment: 'jsdom',
