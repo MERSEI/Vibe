@@ -105,10 +105,10 @@ function VibeIDEInner() {
   const [showShowcase, setShowShowcase] = useState(false);
 
   // Track visited tabs for mount-once pattern
-  const handleTabChange = (tab) => {
+  const handleTabChange = React.useCallback((tab) => {
     setActiveTab(tab);
     setVisitedTabs(prev => new Set([...prev, tab]));
-  };
+  }, []);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
