@@ -85,6 +85,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
   const [inputFiles,      setInputFiles]      = useState([]);
   const [showInputPicker, setShowInputPicker] = useState(false);
   const [showOutputPanel, setShowOutputPanel] = useState(false);
+  const [showLeftPanel,   setShowLeftPanel]   = useState(true);
 
   const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
 
@@ -174,6 +175,31 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
     });
   }, []);
 
+  /** Apply a template: reset agents + DAG to match the template */
+  const handleApplyTemplate = useCallback((tmpl) => {
+    setSelectedTemplate(tmpl);
+    setAgents([{
+      id: 1,
+      name: tmpl.name,
+      model: tmpl.model,
+      status: 'idle',
+      tools: tmpl.tools,
+      provider: 'gemini',
+      apiKey: '',
+    }]);
+    setDagNodes([
+      { id: 'input',  x: 60,   y: 379, label: 'Input',   type: 'input'  },
+      { id: 'agent1', x: 530,  y: 379, label: tmpl.name, type: 'agent'  },
+      { id: 'output', x: 1000, y: 379, label: 'Output',  type: 'output' },
+    ]);
+    setDagEdges([
+      { from: 'input',  to: 'agent1' },
+      { from: 'agent1', to: 'output' },
+    ]);
+    setDagOutput(null);
+    setNodeStatus({});
+  }, []);
+
   /** Add a new Merge node to the DAG */
   const handleAddMerge = useCallback(() => {
     setDagNodes(prev => {
@@ -254,11 +280,11 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
   return (
     <div className="h-full flex">
       {/* Left Panel — Templates & Agents */}
-      <div className={`w-80 border-r ${borderClass} flex flex-col`}>
+      <div className={`border-r ${borderClass} flex flex-col transition-all duration-200 overflow-hidden ${showLeftPanel ? 'w-80' : 'w-0'}`}>
         <TemplateGallery
           templates={AGENT_TEMPLATES}
           selectedTemplate={selectedTemplate}
-          onSelect={setSelectedTemplate}
+          onSelect={handleApplyTemplate}
           theme={theme}
           t={t}
         />
@@ -291,6 +317,8 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
           inputFiles={inputFiles}
           onInputNodeClick={() => setShowInputPicker(true)}
           onOutputNodeClick={() => dagOutput && setShowOutputPanel(true)}
+          showLeftPanel={showLeftPanel}
+          onToggleLeftPanel={() => setShowLeftPanel(!showLeftPanel)}
           theme={theme}
           t={t}
         />
@@ -516,7 +544,8 @@ const STATUS_STROKE = { running: '#3b82f6', completed: '#22c55e', error: '#ef444
 
 function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAddMerge,
   nodeStatuses, onRun, dagRunning, dagInput, setDagInput, dagOutput,
-  files, inputFiles, onInputNodeClick, onOutputNodeClick, theme, t }) {
+  files, inputFiles, onInputNodeClick, onOutputNodeClick,
+  showLeftPanel, onToggleLeftPanel, theme, t }) {
   const [mode, setMode] = useState('drag');
   const [fromNode, setFromNode] = useState(null);
   const [hoveredNode, setHoveredNode] = useState(null);
@@ -621,6 +650,9 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
           )}
         </div>
         <div className="flex gap-1.5">
+          <button onClick={onToggleLeftPanel} className={toolBtn(false)} title="Toggle templates panel">
+            {showLeftPanel ? '◀' : '▶ Templates'}
+          </button>
           <button onClick={() => switchMode('drag')}    className={toolBtn(mode === 'drag')}>✥ Drag</button>
           <button onClick={() => switchMode('connect')} className={toolBtn(mode === 'connect')}>🔗 Connect</button>
           <button onClick={onAddMerge}

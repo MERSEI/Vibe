@@ -1,6 +1,6 @@
 /**
  * Layout Component
- * 
+ *
  * Main application shell with header, sidebar, and footer
  */
 
@@ -9,6 +9,7 @@ import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { THEME_CONFIG } from '../../utils/constants';
+import { EventBusInspector } from '../debug/EventBusInspector';
 
 export function Layout({
   children,
@@ -38,7 +39,7 @@ export function Layout({
         collaborators={collaborators}
       />
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         <Sidebar
           theme={theme}
           t={t}
@@ -48,9 +49,17 @@ export function Layout({
           showEventBus={showEventBus}
         />
 
-        <main className="flex-1 flex overflow-hidden">
-          {children}
-        </main>
+        <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+          <main className="flex-1 flex overflow-hidden min-h-0">
+            {children}
+          </main>
+
+          {showEventBus && (
+            <div className={`shrink-0 border-t ${theme === 'dark' ? 'border-slate-700' : 'border-gray-200'}`}>
+              <EventBusInspector theme={theme} t={t} />
+            </div>
+          )}
+        </div>
       </div>
 
       <StatusBar

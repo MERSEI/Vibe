@@ -96,12 +96,19 @@ function VibeIDEInner() {
 
   // Local UI state
   const [activeTab, setActiveTab] = React.useState('editor');
+  const [visitedTabs, setVisitedTabs] = React.useState(new Set(['editor']));
   const [toast, setToast] = React.useState(null);
   const [showEventBus, setShowEventBus] = React.useState(false);
 
   // Demo state
   const [showSplash, setShowSplash] = useState(true);
   const [showShowcase, setShowShowcase] = useState(false);
+
+  // Track visited tabs for mount-once pattern
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setVisitedTabs(prev => new Set([...prev, tab]));
+  };
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -116,61 +123,6 @@ function VibeIDEInner() {
       return () => clearTimeout(timer);
     }
   }, [toast]);
-
-  // Render active panel based on tab
-  const renderActivePanel = () => {
-    switch (activeTab) {
-      case 'editor':
-        return (
-          <EditorPanel
-            files={files}
-            selectedFile={selectedFile}
-            openTabs={openTabs}
-            onSelectFile={selectFile}
-            onCloseTab={closeTab}
-            onUpdateFile={updateFile}
-            getFileContent={getFileContent}
-            getFileLanguage={getFileLanguage}
-            createFile={createFile}
-            deleteFile={deleteFile}
-            renameFile={renameFile}
-            collaborators={collaborators}
-            showEventBus={showEventBus}
-            theme={theme}
-            t={t}
-          />
-        );
-      case 'agents':
-        return (
-          <Suspense fallback={<PanelLoader />}>
-            <AgentBuilder
-              theme={theme}
-              t={t}
-              createFile={createFile}
-              selectFile={selectFile}
-              files={files}
-              getFileContent={getFileContent}
-              updateFile={updateFile}
-              selectedFile={selectedFile}
-            />
-          </Suspense>
-        );
-      case 'rag':
-        return (
-          <Suspense fallback={<PanelLoader />}>
-            <RAGPlayground theme={theme} t={t} />
-          </Suspense>
-        );
-      case 'debug':
-        return (
-          <Suspense fallback={<PanelLoader />}>
-            <DebugViewer theme={theme} t={t} />
-          </Suspense>
-        );
-      default:
-        return null;
-    }
-  };
 
   // Flow: Splash → Clerk SignIn (if enabled & not signed in) → IDE
   if (showSplash) {
@@ -199,7 +151,7 @@ function VibeIDEInner() {
         lang={lang}
         t={t}
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         onToggleTheme={toggleTheme}
         onToggleLang={toggleLang}
         onToggleEventBus={() => setShowEventBus(!showEventBus)}
@@ -215,7 +167,61 @@ function VibeIDEInner() {
             onClose={() => setToast(null)}
           />
         )}
-        <ErrorBoundary theme={theme}>{renderActivePanel()}</ErrorBoundary>
+
+        {/* Mount-once, hide/show pattern — preserves state across tab switches */}
+        <ErrorBoundary theme={theme}>
+          <div className={`flex-1 flex overflow-hidden ${activeTab === 'editor' ? '' : 'hidden'}`}>
+            <EditorPanel
+              files={files}
+              selectedFile={selectedFile}
+              openTabs={openTabs}
+              onSelectFile={selectFile}
+              onCloseTab={closeTab}
+              onUpdateFile={updateFile}
+              getFileContent={getFileContent}
+              getFileLanguage={getFileLanguage}
+              createFile={createFile}
+              deleteFile={deleteFile}
+              renameFile={renameFile}
+              collaborators={collaborators}
+              theme={theme}
+              t={t}
+            />
+          </div>
+
+          {visitedTabs.has('agents') && (
+            <div className={`flex-1 flex overflow-hidden ${activeTab === 'agents' ? '' : 'hidden'}`}>
+              <Suspense fallback={<PanelLoader />}>
+                <AgentBuilder
+                  theme={theme}
+                  t={t}
+                  createFile={createFile}
+                  selectFile={selectFile}
+                  files={files}
+                  getFileContent={getFileContent}
+                  updateFile={updateFile}
+                  selectedFile={selectedFile}
+                />
+              </Suspense>
+            </div>
+          )}
+
+          {visitedTabs.has('rag') && (
+            <div className={`flex-1 flex overflow-hidden ${activeTab === 'rag' ? '' : 'hidden'}`}>
+              <Suspense fallback={<PanelLoader />}>
+                <RAGPlayground theme={theme} t={t} />
+              </Suspense>
+            </div>
+          )}
+
+          {visitedTabs.has('debug') && (
+            <div className={`flex-1 flex overflow-hidden ${activeTab === 'debug' ? '' : 'hidden'}`}>
+              <Suspense fallback={<PanelLoader />}>
+                <DebugViewer theme={theme} t={t} />
+              </Suspense>
+            </div>
+          )}
+        </ErrorBoundary>
       </Layout>
 
       {/* Floating demo tour button — visible after splash is dismissed */}
@@ -227,7 +233,7 @@ function VibeIDEInner() {
       {showShowcase && (
         <InteractiveShowcase
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={handleTabChange}
           onClose={() => setShowShowcase(false)}
         />
       )}

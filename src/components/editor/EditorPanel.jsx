@@ -1,15 +1,14 @@
 /**
  * EditorPanel Component
- * 
+ *
  * Main editor panel with file tree, code editor, and preview
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { FileTree } from './FileTree';
 import { CodeEditor } from './CodeEditor';
 import { EditorTabs } from './EditorTabs';
 import { LivePreview } from './LivePreview';
-import { EventBusInspector } from '../debug/EventBusInspector';
 
 export function EditorPanel({
   files,
@@ -24,7 +23,6 @@ export function EditorPanel({
   deleteFile,
   renameFile,
   collaborators,
-  showEventBus,
   theme,
   t,
 }) {
@@ -32,20 +30,35 @@ export function EditorPanel({
   const content = getFileContent(selectedFile);
   const language = getFileLanguage(selectedFile);
 
+  const [showFileTree, setShowFileTree] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true);
+  const [showPreview, setShowPreview] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
+
   const handleNewFile = (folderPath, fileName) => {
     if (!fileName?.trim()) return;
     createFile?.(folderPath, fileName, '');
-    // Don't auto-open .gitkeep (used as folder placeholder)
     if (fileName !== '.gitkeep') {
       const newPath = folderPath ? `${folderPath}/${fileName}` : fileName;
       onSelectFile?.(newPath);
     }
   };
 
+  const toggleBtnClass = (active) =>
+    `p-1 rounded text-xs transition-colors ${
+      active
+        ? 'bg-purple-600/20 text-purple-400'
+        : theme === 'dark'
+          ? 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/50'
+          : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+    }`;
+
   return (
     <>
       {/* File Tree */}
-      <div className={`w-56 border-r ${borderClass} flex-shrink-0`}>
+      <div
+        className={`border-r ${borderClass} flex-shrink-0 transition-all duration-200 overflow-hidden ${
+          showFileTree ? 'w-56' : 'w-0'
+        }`}
+      >
         <FileTree
           files={files}
           selectedFile={selectedFile}
@@ -60,14 +73,34 @@ export function EditorPanel({
 
       {/* Editor + Preview */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Tabs */}
-        <EditorTabs
-          tabs={openTabs}
-          selectedTab={selectedFile}
-          onSelect={onSelectFile}
-          onClose={onCloseTab}
-          theme={theme}
-        />
+        {/* Tabs row + panel toggles */}
+        <div className={`flex items-center border-b ${borderClass} min-w-0`}>
+          <div className="flex items-center gap-1 px-2 shrink-0">
+            <button
+              onClick={() => setShowFileTree(!showFileTree)}
+              className={toggleBtnClass(showFileTree)}
+              title="Toggle file tree"
+            >
+              📁
+            </button>
+            <button
+              onClick={() => setShowPreview(!showPreview)}
+              className={toggleBtnClass(showPreview)}
+              title="Toggle preview"
+            >
+              👁
+            </button>
+          </div>
+          <div className="flex-1 min-w-0 overflow-hidden">
+            <EditorTabs
+              tabs={openTabs}
+              selectedTab={selectedFile}
+              onSelect={onSelectFile}
+              onClose={onCloseTab}
+              theme={theme}
+            />
+          </div>
+        </div>
 
         {/* Editor area */}
         <div className="flex-1 flex min-h-0">
@@ -85,7 +118,11 @@ export function EditorPanel({
           </div>
 
           {/* Preview Panel */}
-          <div className={`w-80 border-l ${borderClass} flex-shrink-0`}>
+          <div
+            className={`border-l ${borderClass} flex-shrink-0 transition-all duration-200 overflow-hidden ${
+              showPreview ? 'w-80' : 'w-0'
+            }`}
+          >
             <LivePreview
               code={content}
               language={language}
@@ -94,13 +131,6 @@ export function EditorPanel({
             />
           </div>
         </div>
-
-        {/* Event Bus (collapsible) */}
-        {showEventBus && (
-          <div className={`border-t ${borderClass}`}>
-            <EventBusInspector theme={theme} t={t} />
-          </div>
-        )}
       </div>
     </>
   );
