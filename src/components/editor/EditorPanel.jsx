@@ -35,8 +35,11 @@ export function EditorPanel({
   const handleNewFile = (folderPath, fileName) => {
     if (!fileName?.trim()) return;
     createFile?.(folderPath, fileName, '');
-    const newPath = folderPath ? `${folderPath}/${fileName}` : fileName;
-    onSelectFile?.(newPath);
+    // Don't auto-open .gitkeep (used as folder placeholder)
+    if (fileName !== '.gitkeep') {
+      const newPath = folderPath ? `${folderPath}/${fileName}` : fileName;
+      onSelectFile?.(newPath);
+    }
   };
 
   return (

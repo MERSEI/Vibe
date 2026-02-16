@@ -33,10 +33,13 @@ export function FileTree({
   const [contextMenu, setContextMenu] = useState(null);
   // { folder: string } — shows inline input inside that folder (null = hidden)
   const [newFileState, setNewFileState] = useState({ folder: null, name: '' });
+  // inline folder creation at root
+  const [newFolderState, setNewFolderState] = useState({ active: false, name: '' });
   // path being renamed inline
   const [renamingPath, setRenamingPath] = useState(null);
   const [renameValue, setRenameValue] = useState('');
   const newFileInputRef = useRef(null);
+  const newFolderInputRef = useRef(null);
   const renameInputRef = useRef(null);
 
   const toggleFolder = useCallback((path) => {
@@ -63,6 +66,13 @@ export function FileTree({
       newFileInputRef.current.focus();
     }
   }, [newFileState.folder]);
+
+  // Focus folder input when it appears
+  useEffect(() => {
+    if (newFolderState.active && newFolderInputRef.current) {
+      newFolderInputRef.current.focus();
+    }
+  }, [newFolderState.active]);
 
   // Focus rename input when it appears
   useEffect(() => {
@@ -255,10 +265,7 @@ export function FileTree({
             📄+
           </button>
           <button
-            onClick={() => {
-              const name = window.prompt('Folder name:');
-              if (name?.trim()) onNewFile?.('', name.trim() + '/.gitkeep');
-            }}
+            onClick={() => setNewFolderState({ active: true, name: '' })}
             className={`p-1 rounded text-xs ${theme === 'dark' ? 'hover:bg-slate-700 text-slate-400' : 'hover:bg-gray-200 text-gray-500'}`}
             title={t.newFolder}
           >
@@ -281,6 +288,29 @@ export function FileTree({
             }}
             onBlur={commitNewFile}
             placeholder="filename.js"
+            className={inputClass}
+          />
+        </div>
+      )}
+
+      {/* Inline new-folder input at root level */}
+      {newFolderState.active && (
+        <div className={`flex items-center gap-2 px-2 py-1 border-b border-dashed ${theme === 'dark' ? 'border-slate-600' : 'border-gray-300'}`}>
+          <span className="text-sm">📁</span>
+          <input
+            ref={newFolderInputRef}
+            value={newFolderState.name}
+            onChange={(e) => setNewFolderState(prev => ({ ...prev, name: e.target.value }))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                const n = newFolderState.name.trim();
+                if (n) onNewFile?.(n, '.gitkeep');
+                setNewFolderState({ active: false, name: '' });
+              }
+              if (e.key === 'Escape') setNewFolderState({ active: false, name: '' });
+            }}
+            onBlur={() => setNewFolderState({ active: false, name: '' })}
+            placeholder="folder-name"
             className={inputClass}
           />
         </div>

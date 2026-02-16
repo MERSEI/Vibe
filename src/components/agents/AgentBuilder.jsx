@@ -8,22 +8,22 @@
  * - IDE file attachment and write-back
  */
 
-import React, { useState, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { AGENT_TEMPLATES, LLM_MODELS, CURSOR_COLORS } from '../../utils/constants';
 import { sendMessage } from '../../api/anthropic/client';
 
 // DAG canvas dimensions
 const NODE_W = 164;
 const NODE_H = 62;
-const VB_W   = 920;
-const VB_H   = 580;
+const VB_W   = 1400;
+const VB_H   = 820;
 
 const INITIAL_NODES = [
-  { id: 'input',  x: 40,  y: 258, label: 'Input',        type: 'input'  },
-  { id: 'agent1', x: 290, y: 148, label: 'CodeReviewer', type: 'agent'  },
-  { id: 'agent2', x: 290, y: 376, label: 'DocWriter',    type: 'agent'  },
-  { id: 'merge',  x: 540, y: 258, label: 'Merge',        type: 'merge'  },
-  { id: 'output', x: 720, y: 258, label: 'Output',       type: 'output' },
+  { id: 'input',  x: 60,   y: 379, label: 'Input',        type: 'input'  },
+  { id: 'agent1', x: 380,  y: 200, label: 'CodeReviewer', type: 'agent'  },
+  { id: 'agent2', x: 380,  y: 560, label: 'DocWriter',    type: 'agent'  },
+  { id: 'merge',  x: 760,  y: 379, label: 'Merge',        type: 'merge'  },
+  { id: 'output', x: 1120, y: 379, label: 'Output',       type: 'output' },
 ];
 
 const INITIAL_EDGES = [
@@ -61,6 +61,52 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
 
   const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
 
+  // ---- Bidirectional agent ↔ file sync ----
+  // Tracks last content we wrote so we can skip our own writes
+  const agentFileSyncRef = useRef({});
+
+  // Agent state → file: write agents/{name}.json when agents change
+  useEffect(() => {
+    if (!createFile) return;
+    agents.forEach(agent => {
+      const content = JSON.stringify(
+        { name: agent.name, model: agent.model, tools: agent.tools },
+        null, 2
+      );
+      if (agentFileSyncRef.current[agent.name] !== content) {
+        agentFileSyncRef.current[agent.name] = content;
+        createFile('agents', `${agent.name}.json`, content);
+      }
+    });
+  }, [agents, createFile]);
+
+  // File → agent state: update agent when user edits its JSON file in the editor
+  useEffect(() => {
+    if (!files) return;
+    const agentFiles = files?.agents?.children ?? {};
+    setAgents(prev => {
+      let changed = false;
+      const updated = prev.map(agent => {
+        const fileNode = agentFiles[`${agent.name}.json`];
+        if (!fileNode?.content) return agent;
+        // Skip if this is content we wrote (prevents circular update)
+        if (fileNode.content === agentFileSyncRef.current[agent.name]) return agent;
+        try {
+          const parsed = JSON.parse(fileNode.content);
+          const newModel = parsed.model ?? agent.model;
+          const newTools = Array.isArray(parsed.tools) ? parsed.tools : agent.tools;
+          if (newModel !== agent.model || JSON.stringify(newTools) !== JSON.stringify(agent.tools)) {
+            changed = true;
+            return { ...agent, model: newModel, tools: newTools };
+          }
+        } catch {}
+        return agent;
+      });
+      return changed ? updated : prev;
+    });
+  }, [files]);
+  // ---- End sync ----
+
   const handleAddAgent = useCallback((name, model) => {
     const id = Date.now();
     setAgents(prev => [...prev, { id, name, model, status: 'idle', tools: [] }]);
@@ -85,6 +131,18 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
     setDagNodes(prev => prev.filter(n => !nodeIds.includes(n.id)));
     setDagEdges(prev => prev.filter(e => !nodeIds.includes(e.from) && !nodeIds.includes(e.to)));
   }, [dagNodes]);
+
+  /** Open AgentConfig for an agent from the list */
+  const handleSelectAgent = useCallback((agent) => {
+    setSelectedTemplate({
+      id: agent.id,
+      name: agent.name,
+      icon: '🤖',
+      description: 'Custom agent',
+      model: agent.model,
+      tools: agent.tools,
+    });
+  }, []);
 
   /** Add a new Merge node to the DAG */
   const handleAddMerge = useCallback(() => {
@@ -125,6 +183,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
           agents={agents}
           onAddAgent={handleAddAgent}
           onDeleteAgent={handleDeleteAgent}
+          onSelectAgent={handleSelectAgent}
           theme={theme}
           t={t}
         />
@@ -204,7 +263,7 @@ function TemplateGallery({ templates, selectedTemplate, onSelect, theme, t }) {
 // ---------------------------------------------------------------------------
 // AgentList
 // ---------------------------------------------------------------------------
-function AgentList({ agents, onAddAgent, onDeleteAgent, theme, t }) {
+function AgentList({ agents, onAddAgent, onDeleteAgent, onSelectAgent, theme, t }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newModel, setNewModel] = useState(LLM_MODELS[0]?.id || 'claude-3-opus');
@@ -238,9 +297,12 @@ function AgentList({ agents, onAddAgent, onDeleteAgent, theme, t }) {
         {agents.map((agent, i) => (
           <div
             key={agent.id}
-            className={`group p-3 rounded-lg flex flex-col gap-1 ${
-              theme === 'dark' ? 'bg-slate-800/50 border border-slate-700' : 'bg-gray-50 border border-gray-200'
+            className={`group p-3 rounded-lg flex flex-col gap-1 cursor-pointer transition-all ${
+              theme === 'dark'
+                ? 'bg-slate-800/50 border border-slate-700 hover:border-purple-500/50'
+                : 'bg-gray-50 border border-gray-200 hover:border-purple-300'
             }`}
+            onClick={() => onSelectAgent?.(agent)}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 min-w-0">
@@ -260,7 +322,7 @@ function AgentList({ agents, onAddAgent, onDeleteAgent, theme, t }) {
                 </span>
                 {/* Delete button — visible on row hover */}
                 <button
-                  onClick={() => onDeleteAgent?.(agent.name)}
+                  onClick={(e) => { e.stopPropagation(); onDeleteAgent?.(agent.name); }}
                   className={`opacity-0 group-hover:opacity-100 p-0.5 rounded text-red-400 hover:bg-red-500/20 transition-opacity`}
                   title="Remove agent"
                 >
@@ -442,7 +504,7 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
       </div>
 
       {/* Canvas — wrapper lets SVG fill flex space reliably */}
-      <div className="flex-1 min-h-0 relative" style={{ minHeight: 300 }}>
+      <div className="flex-1 min-h-0 relative" style={{ minHeight: 440 }}>
       <svg
         ref={svgRef}
         className={`absolute inset-0 w-full h-full select-none ${mode === 'connect' ? 'cursor-crosshair' : ''}`}
@@ -535,7 +597,7 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
               {/* Icon circle */}
               <circle cx={nx+28} cy={ny+NODE_H/2} r="13"
                 fill={meta.bg + '20'} stroke={meta.bg + '50'} strokeWidth="1" />
-              <text x={nx+28} y={ny+NODE_H/2} textAnchor="middle" fontSize="12"
+              <text x={nx+28} y={ny+NODE_H/2} textAnchor="middle" fontSize="14"
                 fill={meta.bg} dominantBaseline="central"
                 style={{ pointerEvents: 'none', userSelect: 'none' }}>
                 {meta.glyph}
@@ -543,15 +605,15 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, onAd
               {/* Node label */}
               <text x={nx+50} y={ny+NODE_H/2-8}
                 fill={isDark ? '#f1f5f9' : '#0f172a'}
-                fontSize="11" fontWeight="600" dominantBaseline="middle"
+                fontSize="13" fontWeight="600" dominantBaseline="middle"
                 style={{ pointerEvents: 'none' }}>
-                {node.label.length > 13 ? node.label.slice(0, 12) + '…' : node.label}
+                {node.label.length > 12 ? node.label.slice(0, 11) + '…' : node.label}
               </text>
               {/* Type badge */}
               <rect x={nx+50} y={ny+NODE_H/2+4} width={58} height={14} rx="4"
                 fill={meta.bg + '22'} />
               <text x={nx+79} y={ny+NODE_H/2+11}
-                textAnchor="middle" fill={meta.bg} fontSize="8" fontWeight="700"
+                textAnchor="middle" fill={meta.bg} fontSize="9" fontWeight="700"
                 dominantBaseline="middle" style={{ pointerEvents: 'none' }}>
                 {meta.label}
               </text>
