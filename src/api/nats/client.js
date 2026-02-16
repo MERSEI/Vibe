@@ -7,7 +7,7 @@
  * Env: VITE_NATS_URL=ws://localhost:9222
  */
 
-import { generateMockEvent, startMockStream } from './mockEvents';
+import { startMockStream } from './mockEvents';
 
 const NATS_URL = import.meta.env.VITE_NATS_URL || 'ws://localhost:9222';
 
@@ -22,21 +22,6 @@ const CHANNEL_SUBJECTS = {
 
 let _natsConnection = null;
 let _connectionStatus = 'disconnected'; // 'connected' | 'disconnected' | 'mock'
-let _demoPublisherCleanup = null;
-
-/**
- * Demo publisher — publishes mock events INTO the real NATS so subscribers see them.
- * Runs automatically when connected; simulates activity for the demo environment.
- */
-function startDemoPublisher(nc, codec, intervalMs = 1500) {
-  const interval = setInterval(() => {
-    try {
-      const event = generateMockEvent();
-      nc.publish(event.type, codec.encode({ ...event.data, _demo: true }));
-    } catch { /* ignore publish errors */ }
-  }, intervalMs);
-  return () => clearInterval(interval);
-}
 
 /**
  * Получить текущий статус подключения
@@ -52,7 +37,6 @@ export function getConnectionStatus() {
  */
 async function tryConnect() {
   try {
-    // Динамический импорт — nats.ws не загружается если не нужен
     const { connect, JSONCodec } = await import('nats.ws');
     const nc = await connect({
       servers: NATS_URL,
@@ -66,13 +50,9 @@ async function tryConnect() {
     _natsConnection = nc;
     _connectionStatus = 'connected';
 
-    // Start demo publisher so events flow through real NATS in demo environment
-    _demoPublisherCleanup = startDemoPublisher(nc, codec);
-
     nc.closed().then(() => {
       _connectionStatus = 'disconnected';
       _natsConnection = null;
-      if (_demoPublisherCleanup) { _demoPublisherCleanup(); _demoPublisherCleanup = null; }
     });
 
     return { nc, codec };
@@ -147,13 +127,12 @@ export async function subscribeToEvents(onEvent, options = {}) {
 
 /**
  * Опубликовать событие в NATS.
- * @param {string} subject — NATS subject (например 'agents.codereviewer.result')
+ * @param {string} subject — NATS subject (например 'agents.dag.start')
  * @param {object} data — JSON данные
  * @returns {Promise<boolean>} true если опубликовано, false если NATS недоступен
  */
 export async function publishEvent(subject, data) {
   if (!_natsConnection) {
-    console.warn('[nats] Не подключен, событие не опубликовано');
     return false;
   }
 
@@ -172,7 +151,6 @@ export async function publishEvent(subject, data) {
  * Закрыть NATS подключение.
  */
 export async function disconnect() {
-  if (_demoPublisherCleanup) { _demoPublisherCleanup(); _demoPublisherCleanup = null; }
   if (_natsConnection) {
     await _natsConnection.drain();
     _natsConnection = null;

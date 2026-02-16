@@ -17,6 +17,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { CHUNKING_STRATEGIES } from '../../utils/constants';
 import { ragSearch, getBackendStatus } from '../../api/rag/client';
+import { publishEvent } from '../../api/nats/client';
 
 // Search mode definitions
 const SEARCH_MODES = [
@@ -56,6 +57,7 @@ export function RAGPlayground({ theme, t }) {
     setSelectedResult(null);
     setSearchLatency(null);
     const start = performance.now();
+    publishEvent('rag.search.start', { query, mode: searchMode });
 
     try {
       const results = await ragSearch(query, {
@@ -65,11 +67,14 @@ export function RAGPlayground({ theme, t }) {
         bm25Weight: searchMode === 'hybrid' ? 0.4 : undefined,
       });
 
+      const latencyMs = Math.round(performance.now() - start);
       setResults(Array.isArray(results) ? results : []);
-      setSearchLatency(Math.round(performance.now() - start));
+      setSearchLatency(latencyMs);
+      publishEvent('rag.search.complete', { query, mode: searchMode, resultCount: Array.isArray(results) ? results.length : 0, latencyMs });
     } catch (err) {
       console.error('RAG search error:', err);
       setResults([]);
+      publishEvent('rag.search.error', { query, error: err.message });
     } finally {
       setLoading(false);
     }

@@ -11,6 +11,7 @@
 import React, { useState, useCallback, useRef, useMemo, useEffect } from 'react';
 import { AGENT_TEMPLATES, LLM_MODELS, LLM_PROVIDERS, CURSOR_COLORS } from '../../utils/constants';
 import { sendMessage } from '../../api/anthropic/client';
+import { publishEvent } from '../../api/nats/client';
 
 // DAG canvas dimensions
 const NODE_W = 164;
@@ -198,6 +199,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
     ]);
     setDagOutput(null);
     setNodeStatus({});
+    publishEvent('agents.template.apply', { templateName: tmpl.name, model: tmpl.model, tools: tmpl.tools });
   }, []);
 
   /** Add a new Merge node to the DAG */
@@ -220,6 +222,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
     setDagOutput(null);
     setNodeStatus({});
     const outputs = {};
+    publishEvent('agents.dag.start', { nodeCount: dagNodes.length, edgeCount: dagEdges.length, inputFile: inputFiles[0] || null });
 
     for (const level of topoLevels(dagNodes, dagEdges)) {
       await Promise.all(level.map(async nodeId => {
@@ -246,6 +249,7 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
           const agent = agents.find(a => a.name === node.label);
           if (!agent) return;
           setNodeStatus(prev => ({ ...prev, [nodeId]: 'running' }));
+          publishEvent('agents.dag.node.start', { nodeId, nodeLabel: node.label, nodeType: node.type, agentModel: agent.model });
           try {
             const res = await sendMessage({
               model: agent.model,
@@ -257,14 +261,17 @@ export function AgentBuilder({ theme, t, createFile, selectFile, files, getFileC
             });
             outputs[nodeId] = res.text;
             setNodeStatus(prev => ({ ...prev, [nodeId]: 'completed' }));
+            publishEvent('agents.dag.node.complete', { nodeId, nodeLabel: node.label, outputLength: res.text?.length ?? 0 });
           } catch (e) {
             outputs[nodeId] = `Error: ${e.message}`;
             setNodeStatus(prev => ({ ...prev, [nodeId]: 'error' }));
+            publishEvent('agents.dag.node.error', { nodeId, nodeLabel: node.label, error: e.message });
           }
         }
       }));
     }
     setDagRunning(false);
+    publishEvent('agents.dag.complete', { nodeCount: dagNodes.length, success: true });
   }, [dagNodes, dagEdges, agents, inputFiles, getFileContent]);
 
   /** Delete a DAG node by nodeId (from DAG canvas) */

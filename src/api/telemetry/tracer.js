@@ -16,6 +16,7 @@
 import { WebTracerProvider, SimpleSpanProcessor, InMemorySpanExporter } from '@opentelemetry/sdk-trace-web';
 import { trace, context, SpanStatusCode } from '@opentelemetry/api';
 import { create } from 'zustand';
+import { publishEvent } from '../nats/client';
 
 // ---- In-memory span exporter (DebugViewer всегда работает) ----
 export const spanExporter = new InMemorySpanExporter();
@@ -131,6 +132,7 @@ export async function withSpan(traceName, fn) {
     };
 
     useTraceStore.getState().appendTrace(traceRecord);
+    publishEvent('llm.trace', { name: traceRecord.name, status: 'success', duration: traceRecord.duration, tokens, cost });
 
     if (tokens.input + tokens.output > 0) {
       useTraceStore.getState().appendTokenUsage({
@@ -161,6 +163,7 @@ export async function withSpan(traceName, fn) {
         : [{ id: `s-${Date.now()}`, name: 'execute', start: 0, duration }],
       error: err.message,
     });
+    publishEvent('llm.trace', { name: traceName, status: 'error', duration, error: err.message });
 
     throw err;
   }
