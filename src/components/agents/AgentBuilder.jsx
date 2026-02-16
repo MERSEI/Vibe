@@ -382,6 +382,17 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, them
 
   const switchMode = (m) => { setMode(m); setFromNode(null); setDraggingNode(null); };
 
+  const handleAddMerge = useCallback(() => {
+    const existingMerges = nodes.filter(n => n.type === 'merge').length;
+    setNodes(prev => [...prev, {
+      id: `merge-${Date.now()}`,
+      x: 250 + (existingMerges * 30) % 150,
+      y: 100 + (existingMerges * 20) % 80,
+      label: `Merge${existingMerges > 0 ? existingMerges + 1 : ''}`,
+      type: 'merge',
+    }]);
+  }, [nodes, setNodes]);
+
   const borderClass = theme === 'dark' ? 'border-slate-700' : 'border-gray-200';
   const btnBase = (active) => `px-2 py-1 rounded text-xs ${active
     ? 'bg-purple-600 text-white'
@@ -398,6 +409,7 @@ function DAGVisualization({ nodes, setNodes, edges, setEdges, onDeleteNode, them
         <div className="flex gap-1">
           <button onClick={() => switchMode('drag')}    className={btnBase(mode === 'drag')}>✥ Drag</button>
           <button onClick={() => switchMode('connect')} className={btnBase(mode === 'connect')}>🔗 Connect</button>
+          <button onClick={handleAddMerge} className={`px-2 py-1 rounded text-xs bg-slate-600 hover:bg-slate-500 text-white`}>+ Merge</button>
         </div>
       </div>
 
