@@ -157,6 +157,4 @@ See [ROADMAP.md](./docs/ROADMAP.md) for the full integration plan.
 
 MIT License — see [LICENSE](./LICENSE) for details.
 
----
 
-Built with ❤️ using Claude
