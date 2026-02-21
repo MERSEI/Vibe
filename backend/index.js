@@ -41,7 +41,8 @@ app.use('/api/rag/ingest', ingestLimiter);
 // ── Whitelist of allowed Gemini API paths ──
 const ALLOWED_GEMINI_PATHS = [
   '/v1beta/openai/chat/completions',
-  '/v1beta/models/text-embedding-004:embedContent',
+  '/v1/models/text-embedding-004:embedContent',
+  '/v1beta/models/text-embedding-004:embedContent', // fallback
 ];
 
 // ── Reverse proxy: /api/gemini/* → generativelanguage.googleapis.com ──
