@@ -14,11 +14,10 @@ healthRouter.get('/health', async (req, res) => {
       documents: rows[0].doc_count,
     });
   } catch (err) {
+    console.error('[health] db error:', err.message);
     res.status(503).json({
       status: 'error',
       db: 'disconnected',
-      message: err.message,
-      hint: 'Запустите PostgreSQL и примените schema.sql: psql $DATABASE_URL -f backend/schema.sql',
     });
   }
 });

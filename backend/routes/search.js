@@ -4,6 +4,9 @@ import { getEmbedding } from '../embeddings.js';
 
 export const searchRouter = Router();
 
+const MAX_QUERY_LENGTH = 1000;
+const MAX_LIMIT = 50;
+
 searchRouter.post('/search', async (req, res) => {
   const {
     query,
@@ -16,6 +19,15 @@ searchRouter.post('/search', async (req, res) => {
   if (!query || typeof query !== 'string') {
     return res.status(400).json({ error: 'query обязателен и должен быть строкой' });
   }
+
+  if (query.length > MAX_QUERY_LENGTH) {
+    return res.status(400).json({ error: `Query too long (max ${MAX_QUERY_LENGTH} chars)` });
+  }
+
+  // Clamp numeric parameters to safe ranges
+  const safeLimit = Math.min(Math.max(parseInt(limit) || 5, 1), MAX_LIMIT);
+  const safeVectorWeight = Math.max(0, Math.min(1, parseFloat(vectorWeight) || 0.6));
+  const safeBm25Weight = Math.max(0, Math.min(1, parseFloat(bm25Weight) || 0.4));
 
   try {
     let rows;
@@ -32,7 +44,7 @@ searchRouter.post('/search', async (req, res) => {
          WHERE fts @@ plainto_tsquery('english', $1)
          ORDER BY score DESC
          LIMIT $2`,
-        [query, limit]
+        [query, safeLimit]
       );
       rows = result.rows;
     } else {
@@ -50,14 +62,14 @@ searchRouter.post('/search', async (req, res) => {
            FROM documents
            ORDER BY embedding <=> $1::vector
            LIMIT $2`,
-          [embeddingStr, limit]
+          [embeddingStr, safeLimit]
         );
         rows = result.rows;
       } else {
         // hybrid (по умолчанию)
         const result = await pool.query(
           'SELECT * FROM hybrid_search($1, $2::vector, $3, $4, $5)',
-          [query, embeddingStr, limit, vectorWeight, bm25Weight]
+          [query, embeddingStr, safeLimit, safeVectorWeight, safeBm25Weight]
         );
         rows = result.rows;
       }
@@ -82,10 +94,7 @@ searchRouter.post('/search', async (req, res) => {
 
     res.json(normalized);
   } catch (err) {
-    console.error('[search] ошибка:', err.message);
-    res.status(503).json({
-      error: err.message,
-      hint: 'Убедитесь что PostgreSQL запущен, schema.sql применён, и GEMINI_API_KEY задан в backend/.env',
-    });
+    console.error('[search] error:', err.message);
+    res.status(503).json({ error: 'Service unavailable' });
   }
 });

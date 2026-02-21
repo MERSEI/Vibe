@@ -4,6 +4,10 @@ import { getEmbedding } from '../embeddings.js';
 
 export const ingestRouter = Router();
 
+const MAX_TITLE = 255;
+const MAX_SOURCE = 500;
+const MAX_CONTENT = 50_000; // ~10k words
+
 // POST /api/rag/ingest
 // Body: { title, source, content, metadata? }
 ingestRouter.post('/ingest', async (req, res) => {
@@ -13,6 +17,14 @@ ingestRouter.post('/ingest', async (req, res) => {
     return res.status(400).json({
       error: 'title, source и content обязательны',
     });
+  }
+
+  if (title.length > MAX_TITLE || source.length > MAX_SOURCE || content.length > MAX_CONTENT) {
+    return res.status(400).json({ error: 'Input exceeds maximum allowed length' });
+  }
+
+  if (typeof metadata !== 'object' || Array.isArray(metadata)) {
+    return res.status(400).json({ error: 'metadata must be an object' });
   }
 
   try {
@@ -31,10 +43,7 @@ ingestRouter.post('/ingest', async (req, res) => {
       created_at: rows[0].created_at,
     });
   } catch (err) {
-    console.error('[ingest] ошибка:', err.message);
-    res.status(503).json({
-      error: err.message,
-      hint: 'Убедитесь что PostgreSQL запущен и schema.sql применён',
-    });
+    console.error('[ingest] error:', err.message);
+    res.status(503).json({ error: 'Service unavailable' });
   }
 });

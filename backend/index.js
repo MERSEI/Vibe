@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import https from 'https';
 import { fileURLToPath } from 'url';
@@ -16,11 +17,50 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN ?? 'http://localhost:3000';
 
 app.use(cors({ origin: CORS_ORIGIN }));
 
+// ── Rate limiting ──
+// Global: 100 requests per 15 min per IP
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' },
+});
+app.use(globalLimiter);
+
+// Ingest: stricter — 10 per 15 min (calls Gemini embedding API)
+const ingestLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many ingest requests, please try again later' },
+});
+app.use('/api/rag/ingest', ingestLimiter);
+
+// ── Whitelist of allowed Gemini API paths ──
+const ALLOWED_GEMINI_PATHS = [
+  '/v1beta/openai/chat/completions',
+  '/v1beta/models/text-embedding-004:embedContent',
+];
+
 // ── Reverse proxy: /api/gemini/* → generativelanguage.googleapis.com ──
 // Registered BEFORE express.json() so the raw body stream is preserved.
 // In dev, Vite handles this proxy. In production, Express does it.
 app.use('/api/gemini', express.raw({ type: '*/*', limit: '2mb' }), (req, res) => {
   const targetPath = req.originalUrl.replace(/^\/api\/gemini/, '');
+
+  // Only allow GET/POST
+  if (!['GET', 'POST'].includes(req.method)) {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // Only allow whitelisted paths
+  const isAllowed = ALLOWED_GEMINI_PATHS.some(p => targetPath.startsWith(p));
+  if (!isAllowed) {
+    return res.status(403).json({ error: 'Path not allowed' });
+  }
+
   const body = req.body && req.body.length ? req.body : null;
 
   const options = {
@@ -43,7 +83,7 @@ app.use('/api/gemini', express.raw({ type: '*/*', limit: '2mb' }), (req, res) =>
   proxyReq.on('error', (err) => {
     console.error('[proxy] Gemini proxy error:', err.message);
     if (!res.headersSent) {
-      res.status(502).json({ error: 'Gemini proxy error: ' + err.message });
+      res.status(502).json({ error: 'Upstream error' });
     }
   });
 
@@ -85,7 +125,7 @@ if (GRAFANA_ENDPOINT) {
 
     proxyReq.on('error', (err) => {
       console.error('[proxy] Grafana error:', err.message);
-      if (!res.headersSent) res.status(502).json({ error: 'Grafana proxy error: ' + err.message });
+      if (!res.headersSent) res.status(502).json({ error: 'Upstream error' });
     });
 
     if (body) proxyReq.write(body);
@@ -110,10 +150,10 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Глобальный обработчик ошибок
+// Глобальный обработчик ошибок — не раскрываем детали клиенту
 app.use((err, _req, res, _next) => {
-  console.error('[express] ошибка:', err.message);
-  res.status(500).json({ error: err.message });
+  console.error('[express] error:', err.message);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(PORT, () => {
@@ -121,5 +161,5 @@ app.listen(PORT, () => {
   console.log('  GET  /api/rag/health');
   console.log('  POST /api/rag/search');
   console.log('  POST /api/rag/ingest');
-  console.log('  POST /api/gemini/* → proxy');
+  console.log('  POST /api/gemini/* → proxy (whitelisted paths only)');
 });
